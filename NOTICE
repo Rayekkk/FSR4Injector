@@ -1,0 +1,16 @@
+FSR4 Injector
+Copyright (c) 2026 Rayekkk
+
+The plugin code (main.py, fsr4_*.py, src/, scripts/) is licensed under the BSD 3-Clause License, see LICENSE.
+
+bin/amdxc64.dll is built from shim/src and licensed under the GNU Lesser General Public License version 2.1 or
+later, see shim/COPYING.LIB. It is derived from the amdxc64 implementation in Wine as shipped by GE-Proton
+(Copyright 2023 Etaash Mathamsetty) and uses interface layouts from vkd3d-proton. Its complete source and build
+script are included in shim/.
+
+third_party/decky-api contains the licence and source of @decky/api, which is compiled into dist/index.js.
+
+This package does NOT contain any AMD software. AMD's amdxcffx64.dll (FidelityFX / FSR 4) is downloaded by the
+user, on their device, from AMD's official servers, as part of AMD Software: Adrenalin Edition, and is subject to
+the AMD Software End User License Agreement. AMD, Radeon, Ryzen and FidelityFX are trademarks of Advanced Micro
+Devices, Inc. This project is not affiliated with or endorsed by AMD or Valve.

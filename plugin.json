@@ -1,0 +1,17 @@
+{
+  "name": "FSR4 Injector",
+  "author": "Rayek",
+  "flags": [],
+  "api_version": 1,
+  "main": "main.py",
+  "bin": "dist/index.js",
+  "version": "0.1.0",
+  "publish": {
+    "tags": [
+      "utilities",
+      "graphics"
+    ],
+    "description": "Official AMD FSR 4.1 (Lite) in FSR 3.1+ games on RDNA 3.5 handhelds under Proton.",
+    "image": ""
+  }
+}
