@@ -34,7 +34,31 @@ Cel: plugin Decky, który po kliknięciu sam włącza oficjalny FSR 4.1.2 (model
 Ikona (plakietka „4”), wykrywanie zmian SteamOS/Protona („↻ Re-check needed” + powiadomienie po aktualizacji SteamOS, sprawdzone na konsoli), odświeżanie shimu w grach po aktualizacji pluginu, panel bez spinnera przy ponownym otwarciu i z informacją zwrotną „Rescan library”, test panelu (`tests/frontend_panel.cjs`), repo w stylu Companionów, CI tylko z testami.
 
 ### Dalej
-- **FSR4 dla gier bez FSR 3.1** (FSR 2 / 3.0 / DLSS / XeSS): przez OptiScaler z naszym DLL 4.1.2 jako providerem; plan i zgoda przed budową.
+- **FSR4 dla gier bez FSR 3.1** (FSR 2 / 3.0 / DLSS / XeSS): plan niżej, zgoda przed budową.
+
+## Tryb OptiScaler: rozpoznanie (2026-10-24)
+
+**Stan OptiScalera (GPL-3.0):** stabilne **0.9.4 z 18.07** jest starsze niż FSR 4.1.2 Lite. Wybór modelu 4.1.2, rozpoznanie Strix Point → Lite i FSR4 na Vulkanie są tylko w `master` (19–22.10, bez wydania). Ostatni publiczny build CI z `master` jest z 25.09, a artefakty i tak wymagają logowania. Wydania `.7z` (Python Decky nie rozpakuje ich bez dodatkowej biblioteki).
+
+**Kluczowa obserwacja:** z backendem `fsr31` OptiScaler tłumaczy wejścia gry (DLSS / XeSS / FSR2) na FidelityFX API i ładuje SDK upscalera, które pyta sterownik (`amdxc64` → `UpdateFfxApiProvider`) o nowszego providera. To **dokładnie nasza obecna ścieżka natywna**, więc OptiScaler byłby tylko tłumaczem wejść, a model Lite, kontrolę `family` i status sesji dalej dają nasz shim i DLL AMD. Nie trzeba czekać na wydanie OptiScalera z obsługą Lite. **Do potwierdzenia testem.**
+
+**Gry na Legionie do testów:**
+
+| Gra | Wejścia | Uwagi |
+|---|---|---|
+| HITMAN 3 | FSR2 (osobny DLL), XeSS, DLSS | najlepszy pierwszy test, bez spoofingu |
+| Death Stranding DC | XeSS, DLSS | XeSS bez spoofingu |
+| Control, God of War, Dead Space | tylko DLSS | wymaga podszycia się pod NVIDIA (fakenvapi, MIT) |
+| Red Dead Redemption 2 | FSR2 (osobny DLL), DLSS | online z anti-cheatem – pomijamy |
+
+**Plan budowy (po pozytywnym teście):**
+1. Pliki w grze: `OptiScaler.dll` jako `dxgi.dll` (albo `winmm.dll`, gdy gra ma własny `dxgi.dll`), gotowy `OptiScaler.ini` (`Dx12Upscaler=fsr31`), do tego nasze `amdxc64.dll` + `amdxcffx64.dll`; opcje `WINEDLLOVERRIDES=amdxc64,dxgi=n,b`. Te same reguły co dziś: tylko dokładamy, manifest z hashami, dokładny rollback, blokada anti-cheatów.
+2. OptiScaler dołączony do zipa pluginu (GPL pozwala; licencja i link do źródła w `third_party/`), żeby nie rozpakowywać `.7z` na konsoli. Tylko potrzebne pliki, wersja przypięta.
+3. Shim: przechwycenie ładowania `amdxcffx64` także wtedy, gdy ładuje go ktoś inny niż nasz `UpdateFfxApiProvider` (`LdrRegisterDllNotification`), żeby status sesji i odpowiedź `family` działały w każdej ścieżce.
+4. Panel: przy grze bez FSR 3.1 przełącznik „FSR4 via OptiScaler” z wyraźną informacją, że to wstrzykiwanie (ryzyko z anti-cheatem i aktualizacjami gry) i jak wybrać upscaler w grze (np. XeSS albo DLSS).
+5. DLSS-only (Control itd.) jako drugi krok: fakenvapi + spoofing, osobny test.
+
+**Test przed budową:** OptiScaler 0.9.4 (52 MB z GitHuba) + nasze DLL-e ręcznie w HITMAN 3 (wejście FSR2/XeSS) i Death Stranding (XeSS): watermark `FSR4L-i8` i status shimu.
 - Grafika repo (`FSR4Injector.png`) i zrzuty do `docs/screenshots/` – od autora.
 - Sprawdzanie aktualizacji pluginu z panelu (jak w Companionach).
 
