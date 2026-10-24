@@ -64,13 +64,14 @@ set_opts "WINEDLLOVERRIDES=$overrides=n,b FSR_WATERMARK=1 PROTON_LOG=+amdxc $cmd
 rm -f ~/steam-$app.log
 # LAUNCH=<n>: Steam launch entry; -1 opens Steam's chooser in games with several entries.
 cdp "SteamClient.Apps.RunGame('$app', '', ${LAUNCH:--1}, 100), 'run'" >/dev/null
-for i in $(seq 1 120); do pgrep -f "$exe" >/dev/null && break; sleep 1; done
+# Match the process name, not -f: our own command line contains the exe path.
+for i in $(seq 1 120); do pgrep -x "${exe##*/}" >/dev/null && break; sleep 1; done
 for t in $(seq 30 30 "$wait"); do
   sleep 30; gamescopectl screenshot "$out/shot_${t}s.png" >/dev/null 2>&1
   echo "${t}s: proton log lines $(wc -l < ~/steam-$app.log 2>/dev/null)" >> "$out/info.txt"
 done
 cdp "SteamClient.Apps.TerminateApp('$app', false), 'stop'" >/dev/null
-for i in $(seq 1 60); do pgrep -f "$exe" >/dev/null || break; sleep 1; done
+for i in $(seq 1 60); do pgrep -x "${exe##*/}" >/dev/null || break; sleep 1; done
 sleep 2
 
 cp "$dir/OptiScaler.log" "$out/" 2>/dev/null; cp "$dir/fsr4injector.status.json" "$out/" 2>/dev/null
