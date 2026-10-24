@@ -75,6 +75,7 @@ const Content: FC = () => {
   const [busy, setBusy] = useState<number | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState("");
+  const [bulk, setBulk] = useState<{ on: boolean; text: string } | null>(null);
   const [error, setError] = useState("");
 
   const setState = useCallback((s: State) => { lastState = s; setStateRaw(s); }, []);
@@ -124,19 +125,22 @@ const Content: FC = () => {
     if (next.download.state === "error") notify("FSR4 download failed", next.download.error);
   };
 
+  // Returns whether the game ended up in the requested state; errors are shown per game.
   const apply = async (game: Game, on: boolean) => {
     try {
       const current = await readLaunchOptions(game.appid);
       const res = await (on ? enableGame : disableGame)(game.appid, current);
       if (!res.ok) {
         notify(game.name, res.error ?? "Failed");
-      } else {
-        if (res.launch_options !== undefined && res.launch_options !== current)
-          SteamClient.Apps.SetAppLaunchOptions(game.appid, res.launch_options);
-        if (res.kept?.length) notify(game.name, `Left files you changed in place: ${res.kept.join(", ")}`);
+        return false;
       }
+      if (res.launch_options !== undefined && res.launch_options !== current)
+        SteamClient.Apps.SetAppLaunchOptions(game.appid, res.launch_options);
+      if (res.kept?.length) notify(game.name, `Left files you changed in place: ${res.kept.join(", ")}`);
+      return true;
     } catch (e) {
       notify(game.name, String(e));
+      return false;
     }
   };
 
@@ -147,11 +151,22 @@ const Content: FC = () => {
     refresh();
   };
 
-  // Plugin updates keep games configured (Decky runs uninstall on update), so a real uninstall starts here.
-  const removeAll = async () => {
+  // One game at a time, so each keeps its own launch options and errors. Restoring all is also the cleanup before a
+  // real uninstall: plugin updates keep games configured (Decky runs uninstall on update).
+  const applyAll = async (on: boolean) => {
+    const targets = (state?.games ?? []).filter(g => (on ? !g.enabled && !g.anticheat : g.enabled));
+    let ok = 0;
     setBusy(-1);
-    for (const g of state?.games.filter(g => g.enabled) ?? []) await apply(g, false);
+    for (const [i, g] of targets.entries()) {
+      setBulk({ on, text: `${i + 1}/${targets.length}` });
+      if (await apply(g, on)) ok++;
+    }
+    setBulk(null);
     setBusy(null);
+    const failed = targets.length - ok;
+    const games = (n: number) => `${n} game${n === 1 ? "" : "s"}`;
+    notify("FSR4 Injector", (on ? `FSR4 turned on in ${games(ok)}.` : `${games(ok)} restored to how they were.`) +
+      (failed ? ` ${games(failed)} could not be changed; see the messages above.` : ""));
     refresh();
   };
 
@@ -208,11 +223,19 @@ const Content: FC = () => {
             {scanning ? "Scanning…" : "Rescan library"}
           </ButtonItem>
         </PanelSectionRow>
+        {state.dll_ready && state.shim_ready && state.games.some(g => !g.enabled && !g.anticheat) && (
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={busy !== null} onClick={() => applyAll(true)}
+              description="Sets up every compatible game in the list. Games with anti-cheat are skipped.">
+              {bulk?.on ? `Turning on… ${bulk.text}` : "Turn on FSR4 in all games"}
+            </ButtonItem>
+          </PanelSectionRow>
+        )}
         {state.games.some(g => g.enabled) && (
           <PanelSectionRow>
-            <ButtonItem layout="below" disabled={busy !== null} onClick={removeAll}
-              description="Do this before uninstalling the plugin; updates keep your games set up.">
-              Remove from all games
+            <ButtonItem layout="below" disabled={busy !== null} onClick={() => applyAll(false)}
+              description="Removes the plugin's files and launch option from every game, leaving them as they were. Do this before uninstalling.">
+              {bulk && !bulk.on ? `Restoring… ${bulk.text}` : "Turn off FSR4 and restore all games"}
             </ButtonItem>
           </PanelSectionRow>
         )}

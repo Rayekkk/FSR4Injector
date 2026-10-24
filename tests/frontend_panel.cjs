@@ -113,6 +113,39 @@ const state = (over = {}) => ({
   await settle();
   assert.deepEqual(h.applied, [[1817070, 'WINEDLLOVERRIDES=amdxc64=n,b ~/.dlo/run %command%']]);
 
+  // Turn on in all games: every compatible game except anti-cheat ones, one at a time, with progress and a summary.
+  h.applied.length = 0;
+  h.respond('get_state', state({ games: [
+    { ...game, enabled: true, verdict: 'ok' }, { ...game, appid: 2, name: 'E33' },
+    { ...game, appid: 3, name: 'Online', anticheat: true }, { ...game, appid: 4, name: 'Hitman' } ] }));
+  await settle();
+  tree = h.render();
+  assert.ok(button(tree, 'Turn off FSR4 and restore all games'), 'restore-all is offered when a game is on');
+  button(tree, 'Turn on FSR4 in all games').props.onClick();
+  await settle();
+  assert.ok(button(h.render(), 'Turning on… 1/2'), 'progress shows on the button that runs');
+  assert.ok(button(h.render(), 'Turn off FSR4 and restore all games').props.disabled);
+  assert.equal(h.respond('enable_game', { ok: true, launch_options: 'T %command%' }).args[0], 2);
+  await settle();
+  assert.equal(h.respond('enable_game', { ok: false, error: 'not ours' }).args[0], 4);
+  await settle();
+  assert.ok(!h.pending('enable_game'), 'anti-cheat and already-enabled games are skipped');
+  assert.equal(h.toasts.at(-1).body, 'FSR4 turned on in 1 game. 1 game could not be changed; see the messages above.');
+  h.respond('get_state', state({ games: [{ ...game, enabled: true }, { ...game, appid: 2, name: 'E33', enabled: true }] }));
+  await settle();
+
+  // Turn off and restore all games.
+  button(h.render(), 'Turn off FSR4 and restore all games').props.onClick();
+  await settle();
+  assert.ok(button(h.render(), 'Restoring… 1/2'));
+  for (const id of [1817070, 2]) {
+    assert.equal(h.respond('disable_game', { ok: true, launch_options: '~/.dlo/run %command%', kept: [] }).args[0], id);
+    await settle();
+  }
+  assert.equal(h.toasts.at(-1).body, '2 games restored to how they were.');
+  h.respond('get_state', state());
+  await settle();
+
   // Plugin load: SteamOS update notice, and a warning when a session ended without FSR4.
   h.plugin.default();
   h.respond('startup_notice', { message: 'SteamOS was updated (a → b).' });

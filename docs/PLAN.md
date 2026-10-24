@@ -18,7 +18,7 @@ Cel: plugin Decky, który po kliknięciu sam włącza oficjalny FSR 4.1.2 (model
 - Spider-Man przez ścieżkę panelu: status `INT8_LITE`, provider 4.1.2, werdykt `ok`, bez toastu.
 - **`WINEDLLOVERRIDES=amdxc64=n,b` jest wymagane** (bez niego Wine bierze wbudowany amdxc64 i shim się nie ładuje).
 - Brak cichych awarii: (B) inny plugin usuwa nasz token → wykryte przez znacznik sesji z dokładną przyczyną; (C) DLL odrzuca FSR4 → toast „FSR4 not active” widoczny w Steamie.
-- **Aktualizacja pluginu w Decky = uninstall + install** (wywołuje `_uninstall`): `_uninstall` nie rusza już gier; przycisk „Remove from all games”; aktualizacja zachowuje pliki, manifest i DLL.
+- **Aktualizacja pluginu w Decky = uninstall + install** (wywołuje `_uninstall`): `_uninstall` nie rusza już gier; przycisk „Turn off FSR4 and restore all games”; aktualizacja zachowuje pliki, manifest i DLL.
 - Wyłączenie: pliki usunięte, opcje wracają dokładnie (`~/.dlo/run %command%` od decky-launch-options).
 - Prawdziwe wartości 890M z `RADV_DEBUG=info`: `family_id 150`, `chip_external_rev 20` → tabela shimu, Lite potwierdzony.
 

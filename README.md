@@ -28,6 +28,7 @@ that one missing answer and manages everything around it.
 |---|---|
 | **One-tap setup** | Fetches AMD's FSR 4 library straight from AMD's servers (about 43 MB) and checks it |
 | **Per-game switch** | Lists your installed games that use FSR 3.1 or newer and turns FSR 4 on or off for each |
+| **All at once** | **Turn on FSR4 in all games** sets up every compatible game; **Turn off FSR4 and restore all games** puts every one back |
 | **Never fails silently** | After every session it checks that FSR 4 really ran, and tells you when it did not and why |
 | **Update aware** | Marks a game for a re-check after a SteamOS or Proton update and says what changed |
 | **Clean rollback** | Turning a game off removes exactly what was added and puts its launch options back |
@@ -63,7 +64,7 @@ its DLL up to date at the next start.
 
 ### Uninstalling
 
-Press **Remove from all games** first. Decky handles an update as uninstall plus install, so
+Press **Turn off FSR4 and restore all games** first. Decky handles an update as uninstall plus install, so
 the plugin never removes anything from games on its own. If you skip this, FSR 4 keeps working
 in those games, just without the plugin's checks.
 

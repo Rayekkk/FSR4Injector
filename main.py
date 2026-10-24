@@ -178,5 +178,5 @@ class Plugin:
     async def _uninstall(self):
         # Decky 3.3 runs this on every plugin *update* too (an update is uninstall + install), so tearing games down
         # here would switch FSR4 off everywhere on each update. Games stay as they are and the manifest survives in
-        # the settings dir; "Remove from all games" in the panel is the full cleanup before a real uninstall.
+        # the settings dir; "Turn off FSR4 and restore all games" in the panel is the full cleanup before a real uninstall.
         decky.logger.info(f"uninstall/update: leaving {len(self.manifest.entries)} game(s) configured")
