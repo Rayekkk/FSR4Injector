@@ -58,7 +58,13 @@ Ikona (plakietka „4”), wykrywanie zmian SteamOS/Protona („↻ Re-check nee
 4. Panel: przy grze bez FSR 3.1 przełącznik „FSR4 via OptiScaler” z wyraźną informacją, że to wstrzykiwanie (ryzyko z anti-cheatem i aktualizacjami gry) i jak wybrać upscaler w grze (np. XeSS albo DLSS).
 5. DLSS-only (Control itd.) jako drugi krok: fakenvapi + spoofing, osobny test.
 
-**Test przed budową:** OptiScaler 0.9.4 (52 MB z GitHuba) + nasze DLL-e ręcznie w HITMAN 3 (wejście FSR2/XeSS) i Death Stranding (XeSS): watermark `FSR4L-i8` i status shimu.
+**Test przed budową:** OptiScaler 0.9.4 (52 MB z GitHuba) + nasze DLL-e ręcznie w HITMAN 3 (wejście FSR2/XeSS) i Death Stranding (XeSS): watermark `FSR4L-i8` i status shimu. Skrypt: `tools/device/optiscaler_test.sh`.
+
+**Wynik (2026-10-25, Proton 11.0):**
+- Death Stranding DC: gra kończy się ~0,4 s po drugim `D3D12CreateDevice`, bez wyjątku, **także bez naszego shimu**. Bez znaczenia, czy OptiScaler jest `dxgi.dll` czy `winhttp.dll` (`winmm.dll` Wine bierze z system32), i czy `OverrideNvapiDll=false`, `FGInput/FGOutput=nofg`. Bez OptiScalera gra dochodzi do menu. Wniosek: problem OptiScalera 0.9.4 z tą grą, nie naszego shimu; tryb OptiScaler musi mieć listę gier sprawdzonych, a nie działać „wszędzie”.
+- HITMAN WoA: z OptiScalerem + shimem dochodzi do ekranu tytułowego. OptiScaler ma dla HITMANa quirk „Disable FSR 2.X Inputs”, więc wejściem musi być XeSS (albo DLSS). Upscaler nie był wybrany w grze, więc FFX nie zostało wywołane (`ffx_requested:false`) – brak jeszcze potwierdzenia `FSR4L-i8`.
+- OptiScaler sam przechwytuje `AmdExtD3DCreateInterface` (zwraca własną fabrykę; 3,2 mln linii logu w 2 min przy `LogLevel=2`) i sam ładuje `amdxc64` („InitFSR4Update amdxc64.dll loaded”). Dla 890M loguje `RDNA4: false, RDNA3: false`, ale `Fsr4Update=true` wymusza ścieżkę.
+- Steam: gry z kilkoma wpisami uruchamiania (HITMAN) przy `RunGame(..., -1)` pokazują wybór i nic nie startuje; wpis `0` to `Launcher.exe -SKIP_LAUNCHER`.
 - Grafika repo (`FSR4Injector.png`) i zrzuty do `docs/screenshots/` – od autora.
 - Sprawdzanie aktualizacji pluginu z panelu (jak w Companionach).
 
