@@ -44,7 +44,15 @@ static const struct { const char *rtti; const char *name; } models[] = {
 #define NMODELS (sizeof(models) / sizeof(models[0]))
 #define IS_SUPPORTED_SLOT 2 /* ffxProvider::IsSupported(void *device), FFX SDK 2.0+ vtable layout */
 
+/* ntdll loader notifications (not in the MinGW headers) */
+typedef struct { USHORT Length, MaximumLength; const WCHAR *Buffer; } NT_STRING;
+typedef struct { ULONG Flags; const NT_STRING *FullDllName, *BaseDllName; void *DllBase; ULONG SizeOfImage; } DLL_LOADED_DATA;
+typedef LONG (NTAPI *ldr_register_fn)(ULONG, void *callback, void *context, void **cookie);
+typedef LONG (NTAPI *ldr_unregister_fn)(void *cookie);
+#define LDR_DLL_NOTIFICATION_REASON_LOADED 1
+
 static HMODULE self_module;
+static void *ldr_cookie;
 static SRWLOCK lock = SRWLOCK_INIT;
 static gpa_fn real_gpa;
 static qai_fn real_qai;
@@ -93,10 +101,26 @@ static void json_escape_first_path(const char *s, char *out, size_t len)
     out[o] = 0;
 }
 
+static VOID CALLBACK on_dll_loaded(ULONG reason, const DLL_LOADED_DATA *data, void *context)
+{
+    static const WCHAR ffx_name[] = L"amdxcffx64.dll";
+    const NT_STRING *name = data ? data->BaseDllName : NULL;
+
+    if (reason != LDR_DLL_NOTIFICATION_REASON_LOADED || !name || name->Length != sizeof(ffx_name) - sizeof(WCHAR) ||
+        _wcsnicmp(name->Buffer, ffx_name, ARRAYSIZE(ffx_name) - 1))
+        return;
+    fsr4i_on_ffx_loaded(data->DllBase);
+}
+
 void fsr4i_init(HMODULE self)
 {
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll"), ffx;
+    ldr_register_fn reg = ntdll ? (ldr_register_fn)GetProcAddress(ntdll, "LdrRegisterDllNotification") : NULL;
     SYSTEMTIME t;
     self_module = self;
+    /* Patch amdxcffx64 whoever loads it: OptiScaler has its own IAmdExtFfxApi and never calls ours. */
+    if (reg) reg(0, on_dll_loaded, NULL, &ldr_cookie);
+    if ((ffx = GetModuleHandleW(L"amdxcffx64.dll"))) fsr4i_on_ffx_loaded(ffx);
     /* lets the plugin notice a Proton update since FSR4 was last confirmed */
     json_escape_first_path(getenv("STEAM_COMPAT_TOOL_PATHS"), st.compat_tool, sizeof(st.compat_tool));
     GetSystemTime(&t);
@@ -105,6 +129,15 @@ void fsr4i_init(HMODULE self)
     /* Mark the session right away: vkd3d loads us in every D3D12 game, so a status older than the session means
      * we were not loaded at all (e.g. another tool rewrote the launch options). Plain file I/O, safe at attach. */
     update_status();
+}
+
+/* FreeLibrary of an unpinned shim: the loader must not call into unloaded code. */
+void fsr4i_exit(void)
+{
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    ldr_unregister_fn unreg = ntdll ? (ldr_unregister_fn)GetProcAddress(ntdll, "LdrUnregisterDllNotification") : NULL;
+    if (ldr_cookie && unreg) unreg(ldr_cookie);
+    ldr_cookie = NULL;
 }
 
 BOOL fsr4i_module_path(const WCHAR *name, WCHAR *out, DWORD len)
@@ -227,7 +260,10 @@ BOOL fsr4i_lookup_family(UINT vendor, UINT device, UINT *family, UINT *rev)
 LONG APIENTRY fsr4i_fake_query_adapter_info(void *arg)
 {
     QUERYADAPTERINFO *q = arg;
+    static const LUID any_gpu;
 
+    /* amdxcffx64 loaded and called by another tool (OptiScaler), so our UpdateFfxApiProvider never saw the device */
+    if (!st.ffx_requested) fsr4i_on_ffx_request(any_gpu);
     if (st.have_family && q && q->Type == 0 /* KMTQAITYPE_UMDRIVERPRIVATE */ && q->pPrivateDriverData &&
         q->PrivateDriverDataSize >= 0x38)
     {
@@ -296,9 +332,22 @@ static void record_model(size_t i, void *device, unsigned char supported)
     ReleaseSRWLockExclusive(&lock);
 }
 
+#define FP8_FAMILY 152 /* AMDGPU_FAMILY_GC_12_0_0, RDNA4: the only family with native FP8 WMMA */
+
+/* Another tool's IAmdExtD3DDevice8 (OptiScaler's) claims FP8 WMMA on any GPU; FFX then picks the FP8 model and the
+ * game dies on RDNA 3.5. Our own Device8 only claims what vkd3d reports, so this only overrides such lies. */
+unsigned char fsr4i_model_allowed(size_t i, unsigned char supported)
+{
+    const char *e = getenv("DXIL_SPIRV_CONFIG");
+    if (i == 0 /* FP8 */ && supported && st.have_family && st.family != FP8_FAMILY &&
+        !(e && !strcmp(e, "wmma_rdna3_workaround")))
+        return 0;
+    return supported;
+}
+
 #define IS_SUPPORTED_HOOK(i) \
     static unsigned char is_supported_##i(void *p, void *d) \
-    { unsigned char r = real_is_supported[i](p, d); record_model(i, d, r); return r; }
+    { unsigned char r = fsr4i_model_allowed(i, real_is_supported[i](p, d)); record_model(i, d, r); return r; }
 IS_SUPPORTED_HOOK(0) IS_SUPPORTED_HOOK(1) IS_SUPPORTED_HOOK(2) IS_SUPPORTED_HOOK(3)
 static const is_supported_fn is_supported_hooks[NMODELS] = { is_supported_0, is_supported_1, is_supported_2, is_supported_3 };
 
@@ -376,23 +425,30 @@ int fsr4i_hook_models(HMODULE ffx)
 
 /* ---- callbacks from amdxc64.c ---- */
 
-static void query_gpu(LUID luid)
+/* The adapter with this LUID, or with a zero LUID the first AMD one.
+ * shortcut: a zero LUID on a PC with two AMD GPUs picks the first; fine for handhelds, needs the D3DKMT adapter
+ * handle mapped to its LUID if multi-GPU desktops ever use the OptiScaler path. */
+static void query_gpu(LUID luid, UINT *vendor, UINT *device)
 {
     typedef HRESULT (WINAPI *create_factory_fn)(REFIID, void **);
     HMODULE dxgi = LoadLibraryW(L"dxgi.dll");
     create_factory_fn create = dxgi ? (create_factory_fn)GetProcAddress(dxgi, "CreateDXGIFactory1") : NULL;
+    BOOL any = !luid.LowPart && !luid.HighPart;
     IDXGIFactory4 *factory;
     IDXGIAdapter *adapter;
     DXGI_ADAPTER_DESC desc;
 
     if (create && SUCCEEDED(create(&IID_IDXGIFactory4, (void **)&factory)))
     {
-        if (SUCCEEDED(IDXGIFactory4_EnumAdapterByLuid(factory, luid, &IID_IDXGIAdapter, (void **)&adapter)))
+        for (UINT i = 0; !*vendor; i++)
         {
-            if (SUCCEEDED(IDXGIAdapter_GetDesc(adapter, &desc)))
+            if (any ? FAILED(IDXGIFactory4_EnumAdapters(factory, i, &adapter))
+                    : i || FAILED(IDXGIFactory4_EnumAdapterByLuid(factory, luid, &IID_IDXGIAdapter, (void **)&adapter)))
+                break;
+            if (SUCCEEDED(IDXGIAdapter_GetDesc(adapter, &desc)) && (!any || desc.VendorId == 0x1002))
             {
-                st.vendor = desc.VendorId;
-                st.device = desc.DeviceId;
+                *vendor = desc.VendorId;
+                *device = desc.DeviceId;
             }
             IDXGIAdapter_Release(adapter);
         }
@@ -403,11 +459,15 @@ static void query_gpu(LUID luid)
 
 void fsr4i_on_ffx_request(LUID luid)
 {
+    UINT vendor = 0, device = 0;
+
     if (st.ffx_requested) return; /* SDK 2.x games call this every frame */
+    query_gpu(luid, &vendor, &device); /* outside the lock: it takes the loader lock, which may be waiting on ours */
     AcquireSRWLockExclusive(&lock);
     if (!st.ffx_requested)
     {
-        query_gpu(luid);
+        st.vendor = vendor;
+        st.device = device;
         st.have_family = fsr4i_lookup_family(st.vendor, st.device, &st.family, &st.rev);
         if (!st.have_family) fsr4i_log("GPU %04x:%04x is not in the RDNA 3.5 table; FSR4 stays off", st.vendor, st.device);
         st.ffx_requested = TRUE;
@@ -419,8 +479,12 @@ void fsr4i_on_ffx_request(LUID luid)
 void fsr4i_on_ffx_loaded(HMODULE ffx)
 {
     static LONG done;
+    HMODULE pinned;
     if (InterlockedExchange(&done, 1)) return;
 
+    /* amdxcffx64 will call into us from now on, so stay loaded even if whoever loaded us frees us */
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                       (LPCWSTR)fsr4i_on_ffx_loaded, &pinned);
     AcquireSRWLockExclusive(&lock);
     st.dll_loaded = TRUE;
     st.iat_patched = fsr4i_patch_iat(ffx, "KERNEL32.dll", "GetProcAddress", hook_get_proc_address, (void **)&real_gpa);

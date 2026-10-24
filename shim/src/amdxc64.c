@@ -331,6 +331,8 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, void *reserved)
         if ((env = getenv("FSR_WATERMARK")) && !strcmp(env, "1")) _putenv("MLSR-WATERMARK=1");
         if ((env = getenv("FSR_FG_WATERMARK")) && !strcmp(env, "1")) _putenv("MLFI-WATERMARK=1");
     }
+    else if (reason == DLL_PROCESS_DETACH && !reserved) /* FreeLibrary, not process exit */
+        fsr4i_exit();
     return TRUE;
 }
 #endif

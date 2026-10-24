@@ -4,6 +4,7 @@
 #include <initguid.h>
 #include "../src/amd_ext.h"
 #include "../src/fsr4i.h"
+#include <process.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,11 +28,35 @@ static char *read_file(const char *path)
     return buf;
 }
 
+/* Child process: any module named amdxcffx64.dll that someone else loads (OptiScaler does) must reach the shim
+ * through the loader notification. A copy of a harmless system DLL stands in, as running AMD's code needs its GPU. */
+static int loader_notification_child(const char *status_path)
+{
+    char env[MAX_PATH + 16], src[MAX_PATH], dir[MAX_PATH], dst[MAX_PATH];
+    snprintf(env, sizeof(env), "FSR4I_STATUS=%s", status_path);
+    _putenv(env);
+    fsr4i_init(GetModuleHandleW(NULL));
+    GetSystemDirectoryA(src, MAX_PATH);
+    strcat(src, "\\version.dll");
+    GetTempPathA(MAX_PATH, dir);
+    strcat(dir, "fsr4i_notify");
+    CreateDirectoryA(dir, NULL);
+    snprintf(dst, sizeof(dst), "%s\\amdxcffx64.dll", dir);
+    if (!CopyFileA(src, dst, FALSE)) return 3;
+    HMODULE m = LoadLibraryA(dst);
+    char *json = read_file(status_path);
+    int ok = m && json && strstr(json, "\"dll_loaded\":true");
+    if (!ok) printf("child status: %s\n", json ? json : "(none)");
+    /* pinned by the shim, so the copy stays locked until we exit; the parent removes it */
+    return ok ? 0 : 1;
+}
+
 int main(int argc, char **argv)
 {
     UINT family = 0, rev = 0;
     char status_path[MAX_PATH], env[MAX_PATH + 16], *json;
 
+    if (argc == 3 && !strcmp(argv[1], "--loader-notification")) return loader_notification_child(argv[2]);
     if (argc < 2) { printf("usage: %s <amdxcffx64.dll>\n", argv[0]); return 2; }
 
     /* status file goes where FSR4I_STATUS says */
@@ -64,11 +89,10 @@ int main(int argc, char **argv)
     CHECK(!fsr4i_lookup_family(0x1002, 0x744c, &family, &rev));
     _wremove(gpu_path);
 
-    /* explicit override path makes the KMD answer available without an AMD GPU */
+    /* explicit override path makes the KMD answer available without an AMD GPU. No fsr4i_on_ffx_request first:
+     * like under OptiScaler, the first driver query has to look the GPU up itself. */
     _putenv("FSR4I_FAMILY=150");
     _putenv("FSR4I_REV=0x1");
-    LUID luid = {0};
-    fsr4i_on_ffx_request(luid);
     BYTE blob[0x260];
     memset(blob, 0xcc, sizeof(blob));
     QUERYADAPTERINFO q = { 1, 0 /* UMDRIVERPRIVATE */, blob, sizeof(blob) };
@@ -76,6 +100,14 @@ int main(int argc, char **argv)
     CHECK(*(UINT *)(blob + 0x30) == 150 && *(UINT *)(blob + 0x34) == 1 && blob[0] == 0);
     QUERYADAPTERINFO small = { 1, 0, blob, 0x20 }; /* too small: not ours to answer */
     CHECK(fsr4i_fake_query_adapter_info(&small) != 0);
+    json = read_file(status_path);
+    CHECK(json && strstr(json, "\"ffx_requested\":true"));
+
+    /* FP8 only where the hardware has it (family 152), whatever another tool's Device8 claims */
+    CHECK(fsr4i_model_allowed(0, 1) == 0 && fsr4i_model_allowed(3, 1) == 1 && fsr4i_model_allowed(0, 0) == 0);
+    _putenv("DXIL_SPIRV_CONFIG=wmma_rdna3_workaround"); /* deliberate FP8 emulation stays possible */
+    CHECK(fsr4i_model_allowed(0, 1) == 1);
+    _putenv("DXIL_SPIRV_CONFIG=");
 
     /* real AMD DLL: imports and all four FSR4 model providers must be found */
     HMODULE ffx = LoadLibraryExA(argv[1], NULL, DONT_RESOLVE_DLL_REFERENCES);
@@ -83,13 +115,14 @@ int main(int argc, char **argv)
     if (ffx)
     {
         DWORD t = GetTickCount();
-        fsr4i_on_ffx_loaded(ffx);
+        fsr4i_on_ffx_loaded(ffx); /* the loader skips notifications for DONT_RESOLVE_DLL_REFERENCES; see below */
         printf("hooking took %lu ms\n", GetTickCount() - t);
         json = read_file(status_path);
         CHECK(json != NULL);
         if (json)
         {
             printf("status: %s", json);
+            CHECK(strstr(json, "\"dll_loaded\":true") != NULL);
             CHECK(strstr(json, "\"iat_patched\":true") != NULL);
             CHECK(strstr(json, "\"model_hooks\":4") != NULL);
             CHECK(strstr(json, "\"kmd_answered\":true") != NULL);
@@ -120,6 +153,18 @@ int main(int argc, char **argv)
     }
     void *nothing = (void *)1;
     CHECK(AmdExtD3DCreateInterface(NULL, &IID_ID3D12DeviceExt3, &nothing) == E_NOINTERFACE && !nothing);
+
+    /* loader notification, in a fresh process (this one already hooked the AMD DLL) */
+    char exe[MAX_PATH], quoted[MAX_PATH + 2], child_status[MAX_PATH], copy[MAX_PATH];
+    GetModuleFileNameA(NULL, exe, MAX_PATH);
+    snprintf(quoted, sizeof(quoted), "\"%s\"", exe);
+    GetTempPathA(MAX_PATH, child_status);
+    strcat(child_status, "fsr4i_test_child.json");
+    CHECK(_spawnl(_P_WAIT, exe, quoted, "--loader-notification", child_status, NULL) == 0);
+    GetTempPathA(MAX_PATH, copy);
+    strcat(copy, "fsr4i_notify\\amdxcffx64.dll");
+    DeleteFileA(copy);
+    DeleteFileA(child_status);
 
     DeleteFileA(status_path);
     printf(failures ? "%d FAILED\n" : "all passed\n", failures);
