@@ -89,10 +89,14 @@ class InstallRollback(unittest.TestCase):
         return sorted(os.listdir(self.target))
 
     def test_enable_then_disable_restores_folder_and_options(self):
-        opts = I.enable(self.m, self.game, self.shim, self.ffx, "-novid")
-        self.assertEqual(self.files(), ["amdxc64.dll", "amdxcffx64.dll", "game.exe"])
+        gpu = {"device": 0x150E, "family": 150, "rev": 20}
+        opts = I.enable(self.m, self.game, self.shim, self.ffx, "-novid", gpu)
+        self.assertEqual(self.files(), ["amdxc64.dll", "amdxcffx64.dll", "fsr4injector.gpu", "game.exe"])
+        with open(os.path.join(self.target, I.GPU)) as f:
+            self.assertEqual(f.read(), "5390 150 20\n")  # what the shim parses
         self.assertEqual(opts, f"{I.TOKEN} %command% -novid")
-        self.assertIn(42, I.Manifest(self.mpath).entries)  # persisted
+        entry = I.Manifest(self.mpath).entries[42]  # persisted
+        self.assertEqual(entry["mode"], I.MODE_NATIVE)
         _write(os.path.join(self.target, I.STATUS), b"{}")  # shim runtime output
         res = I.disable(I.Manifest(self.mpath), 42, opts)
         self.assertEqual(res, {"launch_options": "-novid", "kept": []})
@@ -197,6 +201,9 @@ class Plugin(unittest.TestCase):
         _library(steam, 1817070, "Spider-Man", "SM", ["Spider-Man.exe", "amd_fidelityfx_dx12.dll"])
         # never touch the repo's real bin/amdxc64.dll
         self.enterContext(mock.patch.object(main, "SHIM_PATH", os.path.join(tempfile.mkdtemp(), "amdxc64.dll")))
+        gpu = {"device": 0x150E, "family": 150, "rev": 20, "model": "INT8_LITE", "model_name": "INT8 Lite",
+               "verified": True}
+        self.enterContext(mock.patch.object(main.fsr4_gpu, "detect", return_value=gpu))
         p = main.Plugin()
         run = asyncio.run
 
@@ -209,6 +216,9 @@ class Plugin(unittest.TestCase):
             _write(main._ffx_path(), b"amd")
             _write(main.SHIM_PATH, b"shim")
             p.dll_ok = True
+            p.gpu = {**gpu, "family": 148, "model": None}  # e.g. a 780M: AMD has no model
+            self.assertIn("no model for this GPU", (await p.enable_game(1817070, ""))["error"])
+            p.gpu = gpu
             res = await p.enable_game(1817070, "")
             self.assertTrue(res["ok"], res)
             target = os.path.join(steam, "steamapps", "common", "SM")

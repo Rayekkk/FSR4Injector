@@ -11,6 +11,7 @@ Rules that make rollback safe:
 """
 
 import calendar
+import hashlib
 import json
 import os
 import shutil
@@ -20,7 +21,9 @@ from fsr4_dll import sha256_file
 
 SHIM = "amdxc64.dll"
 FFX = "amdxcffx64.dll"
+GPU = "fsr4injector.gpu"  # the GPU's real family/revision for the shim
 STATUS = "fsr4injector.status.json"
+MODE_NATIVE = "native"  # the game's own FidelityFX path (FSR 3.1+); room for an OptiScaler mode later
 # Required: without it Wine loads its builtin amdxc64 from system32 and ignores ours (checked on Proton 11).
 TOKEN = "WINEDLLOVERRIDES=amdxc64=n,b"
 
@@ -76,10 +79,27 @@ def _copy(src, dst):
     os.replace(tmp, dst)
 
 
-def enable(manifest, game, shim_path, ffx_path, launch_options):
-    """Install into game["target_dir"]; returns the launch options to apply."""
+def _write(dst, data):
+    tmp = dst + ".fsr4i-tmp"
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, dst)
+
+
+def gpu_file_content(gpu):
+    return f"{gpu['device']} {gpu['family']} {gpu['rev']}\n".encode()
+
+
+def enable(manifest, game, shim_path, ffx_path, launch_options, gpu=None):
+    """Install into game["target_dir"]; returns the launch options to apply.
+
+    gpu: fsr4_gpu.detect() result; written next to the shim so it passes the real family/revision to AMD's DLL.
+    """
     appid, target = game["appid"], game["target_dir"]
+    sources = {SHIM: shim_path, FFX: ffx_path}
     want = {SHIM: sha256_file(shim_path), FFX: sha256_file(ffx_path)}
+    if gpu:
+        want[GPU] = hashlib.sha256(gpu_file_content(gpu)).hexdigest()
     known = manifest.entries.get(appid, {}).get("files", {})
 
     for name in want:
@@ -90,10 +110,15 @@ def enable(manifest, game, shim_path, ffx_path, launch_options):
     # Our token can already be there (left by an earlier install); it is never part of the user's original.
     original = " ".join(w for w in (launch_options or "").split() if w != TOKEN)
     entry = manifest.entries.get(appid) or {"target_dir": target, "files": {}, "launch_original": original}
+    entry.setdefault("mode", MODE_NATIVE)
     new_options = with_token(launch_options) if TOKEN else (launch_options or "").strip()
     try:
-        for name, src in ((SHIM, shim_path), (FFX, ffx_path)):
-            _copy(src, os.path.join(target, name))
+        for name in want:
+            dst = os.path.join(target, name)
+            if name == GPU:
+                _write(dst, gpu_file_content(gpu))
+            else:
+                _copy(sources[name], dst)
             entry["files"][name] = want[name]
             manifest.entries[appid] = entry  # recorded as soon as a file exists, so a crash can still be undone
             manifest.save()

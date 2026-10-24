@@ -66,8 +66,10 @@ const text = node => all(node).flatMap(n => [n.props?.label, n.props?.descriptio
 const button = (tree, label) => byType(tree, 'ButtonItem').find(b => [].concat(b.props.children).includes(label));
 
 const game = { appid: 1817070, name: 'Spider-Man', target_dir: '/g', anticheat: false, enabled: false, verdict: 'unknown', reason: '' };
+const gpu890 = { device: 0x150e, family: 150, rev: 20, arch: 'RDNA 3.5', model: 'INT8_LITE', model_name: 'INT8 Lite', verified: true };
 const state = (over = {}) => ({
-  dll_ready: true, shim_ready: true, recipe: { driver: 'Adrenalin 26.10.1', fsr: '4.1.2', dll_size: 1 }, eula_url: 'https://x',
+  dll_ready: true, shim_ready: true, gpu: gpu890,
+  recipe: { driver: 'Adrenalin 26.10.1', fsr: '4.1.2', dll_size: 1 }, eula_url: 'https://x',
   download: { state: 'idle', done: 0, total: 1, error: '' }, scanned: true, games: [game], ...over,
 });
 
@@ -153,6 +155,25 @@ const state = (over = {}) => ({
     await settle();
   }
   assert.equal(h.toasts.at(-1).body, '2 games restored to how they were.');
+  h.respond('get_state', state());
+  await settle();
+
+  // GPU line: verified, beta, and a GPU AMD has no model for (switches locked, nothing to turn on).
+  tree = h.render();
+  assert.match(text(tree), /RDNA 3\.5 GPU \| PCI 1002:150e\. AMD's FSR 4\.1\.2 picks its INT8 Lite model here\./);
+  assert.doesNotMatch(text(tree), /Beta/);
+  h.remount();
+  h.respond('get_state', state({ gpu: { ...gpu890, device: 0x163f, family: 144, rev: 1, arch: 'RDNA 2 APU (Van Gogh)', verified: false } }));
+  await settle();
+  assert.match(text(h.render()), /Beta: not tested on this GPU yet/);
+  h.remount();
+  h.respond('get_state', state({ gpu: { ...gpu890, device: 0x15bf, family: 148, arch: 'RDNA 3 APU', model: null, model_name: '' } }));
+  await settle();
+  tree = h.render();
+  assert.match(text(tree), /GPU not supported \| AMD's FSR 4 has no model for this GPU \(RDNA 3 APU, PCI 1002:15bf\)/);
+  assert.ok(byType(tree, 'ToggleField').every(t => t.props.disabled), 'nothing can be turned on without a model');
+  assert.ok(!button(tree, 'Turn on FSR4 in all games'));
+  h.remount();
   h.respond('get_state', state());
   await settle();
 

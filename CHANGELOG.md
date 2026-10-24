@@ -9,6 +9,11 @@ First release: AMD's official FSR 4.1.2 with its Lite model in FSR 3.1+ games on
 
 ### Added
 
+- **The GPU's own model:** the plugin reads the GPU's real family and revision from the amdgpu
+  driver and AMD's library picks its model from them, as on Windows. The panel shows the GPU and
+  that model. Checked on the Radeon 890M (Lite); Steam Deck and Ryzen Z2 A (Lite), RX 6000
+  (RDNA2 model), RX 7000 and Strix Halo (INT8) and RX 9000 (FP8) are marked beta until tested.
+  GPUs AMD has no model for, such as the 780M, are refused with an explanation.
 - **FSR 4 per game:** turn it on or off for each installed DirectX 12 game that uses FSR 3.1
   or newer. AMD's library chooses its Lite model by itself, as on Windows. Checked in
   Spider-Man Remastered, Spider-Man 2 and Clair Obscur: Expedition 33, on Proton 11 and Proton

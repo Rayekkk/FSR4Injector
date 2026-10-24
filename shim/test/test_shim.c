@@ -53,6 +53,17 @@ int main(int argc, char **argv)
     CHECK(!fsr4i_lookup_family(0x1002, 0x744c, &family, &rev)); /* RDNA3 dGPU: real driver data not ours to invent */
     CHECK(!fsr4i_lookup_family(0x10de, 0x150e, &family, &rev));
 
+    /* values from the plugin's file win over the table, but only for the GPU they describe */
+    WCHAR gpu_path[MAX_PATH];
+    CHECK(fsr4i_module_path(L"fsr4injector.gpu", gpu_path, MAX_PATH));
+    FILE *g = _wfopen(gpu_path, L"w");
+    fprintf(g, "5695 144 3\n"); /* 0x163f Van Gogh */
+    fclose(g);
+    CHECK(fsr4i_lookup_family(0x1002, 0x163f, &family, &rev) && family == 144 && rev == 3);
+    CHECK(fsr4i_lookup_family(0x1002, 0x150e, &family, &rev) && family == 150 && rev == 20); /* file is for 0x163f */
+    CHECK(!fsr4i_lookup_family(0x1002, 0x744c, &family, &rev));
+    _wremove(gpu_path);
+
     /* explicit override path makes the KMD answer available without an AMD GPU */
     _putenv("FSR4I_FAMILY=150");
     _putenv("FSR4I_REV=0x1");

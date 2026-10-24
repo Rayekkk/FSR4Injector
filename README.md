@@ -41,13 +41,14 @@ model 15.1 ms. One run per variant.
 
 | Requirement | Details |
 |---|---|
-| GPU | AMD RDNA 3.5 APU. Verified: Radeon 880M/890M (Strix Point: Ryzen Z2 Extreme, Ryzen AI 9 300) |
+| GPU | An AMD GPU that AMD's FSR 4.1.2 has a model for. **Verified:** Radeon 880M/890M (Strix Point: Ryzen Z2 Extreme, Ryzen AI 9 300) with the Lite model. **Beta, not tested yet:** Steam Deck and Ryzen Z2 A (Van Gogh, Lite), RX 6000 (RDNA2 model), RX 7000 and Strix Halo (INT8), RX 9000 (FP8) |
 | System | SteamOS in Gaming Mode with [Decky Loader](https://decky.xyz); Proton 11 or Proton Experimental |
 | Games | DirectX 12 games that ship `amd_fidelityfx_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll` or `amd_fidelityfx_loader_dx12.dll` (FSR 3.1 or newer) |
 | Network | Once, to download AMD's library from `drivers.amd.com` |
 
-FSR 2, FSR 3.0 and Vulkan games are not supported. Other RDNA 3.5 GPUs are refused until they
-have been checked.
+FSR 2, FSR 3.0 and Vulkan games are not supported. The panel shows which model AMD's library
+will pick on your GPU; GPUs AMD has no model for, such as the Radeon 780M (Z1 Extreme), are
+refused.
 
 Adding DLLs to a game's folder can get you kicked or banned in online games, so:
 
@@ -123,9 +124,11 @@ front of its launch options (without it Wine loads its own builtin `amdxc64` and
 | `amdxc64.dll` | This project's open-source stand-in for AMD's driver extension DLL, based on GE-Proton's |
 
 AMD's library picks its model by asking the Windows kernel driver for the GPU family. Wine has
-no answer, so every model is refused and FSR 3 stays. The shim answers that one question with
-the GPU's real values (RDNA 3.5, family 150, revision 20 on the 890M, as RADV reports them). The
-library then chooses its Lite model by itself, as on Windows. Nothing on disk is patched; AMD's
+no answer, so every model is refused and FSR 3 stays. The plugin reads the GPU's real family and
+revision from the Linux amdgpu driver (the values RADV reports, e.g. family 150, revision 20 on
+the 890M) into `fsr4injector.gpu`, and the shim answers that one question with them. The library
+then chooses its model by its own rules, as on Windows: Lite on RDNA 3.5 and Van Gogh APUs, its
+RDNA2 model on RX 6000, INT8 on RX 7000 and Strix Halo. Nothing on disk is patched; AMD's
 signature stays intact.
 
 AMD's library is not part of the plugin. It ships only inside AMD's 1.7 GB Adrenalin installer,

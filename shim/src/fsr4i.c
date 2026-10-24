@@ -27,9 +27,9 @@ typedef unsigned char (*is_supported_fn)(void *provider, void *device);
 
 typedef struct { UINT hAdapter; UINT Type; void *pPrivateDriverData; UINT PrivateDriverDataSize; } QUERYADAPTERINFO;
 
-/* Real values for each GPU, as RADV_DEBUG=info reports them (family_id, chip_external_rev). Lite needs family 150
- * (AMDGPU_FAMILY_GC_11_5_0) with revision 1..0x3F; family 150 with 0xC0..0xCF gets the full INT8 model instead.
- * shortcut: only the Radeon 880M/890M (Strix Point) is verified; add other RDNA 3.5 IDs after testing on them. */
+/* Fallback when the plugin's fsr4injector.gpu is missing: real values as RADV_DEBUG=info reports them (family_id,
+ * chip_external_rev). Lite needs family 150 (AMDGPU_FAMILY_GC_11_5_0) with revision 1..0x3F; family 150 with
+ * 0xC0..0xCF gets the full INT8 model instead. */
 static const struct { USHORT device; UINT family, rev; } gpus[] = {
     { 0x150e, 150, 20 }, /* Strix Point, Legion Go 2: family_id 150, chip_external_rev 20 */
 };
@@ -182,6 +182,26 @@ static void update_status(void)
 
 /* ---- GPU family answer ---- */
 
+/* "<pci device> <family> <revision>" written by the plugin from the amdgpu kernel driver (AMDGPU_INFO_DEV_INFO).
+ * Used only when it describes the GPU we run on, so a game folder moved to another machine is not misled. */
+static BOOL read_gpu_file(UINT device, UINT *family, UINT *rev)
+{
+    WCHAR path[MAX_PATH];
+    unsigned d, f, r;
+    FILE *file;
+    BOOL ok;
+
+    if (!fsr4i_module_path(L"fsr4injector.gpu", path, MAX_PATH) || !(file = _wfopen(path, L"r"))) return FALSE;
+    ok = fscanf(file, "%u %u %u", &d, &f, &r) == 3 && d == device && f;
+    fclose(file);
+    if (ok)
+    {
+        *family = f;
+        *rev = r;
+    }
+    return ok;
+}
+
 BOOL fsr4i_lookup_family(UINT vendor, UINT device, UINT *family, UINT *rev)
 {
     const char *f = getenv("FSR4I_FAMILY"), *r = getenv("FSR4I_REV");
@@ -193,6 +213,7 @@ BOOL fsr4i_lookup_family(UINT vendor, UINT device, UINT *family, UINT *rev)
         return TRUE;
     }
     if (vendor != 0x1002) return FALSE;
+    if (read_gpu_file(device, family, rev)) return TRUE;
     for (size_t i = 0; i < sizeof(gpus) / sizeof(gpus[0]); i++)
         if (gpus[i].device == device)
         {

@@ -32,9 +32,20 @@ interface Game {
   reason: string;
 }
 
+interface Gpu {
+  device: number;
+  family: number;
+  rev: number;
+  arch: string;
+  model: string | null;
+  model_name: string;
+  verified: boolean;
+}
+
 interface State {
   dll_ready: boolean;
   shim_ready: boolean;
+  gpu: Gpu | null;
   recipe: { driver: string; fsr: string; dll_size: number };
   eula_url: string;
   download: { state: "idle" | "running" | "done" | "error"; done: number; total: number; error: string };
@@ -192,9 +203,24 @@ const Content: FC = () => {
   if (!state) return <PanelSection>{error ? <Field label="Backend unavailable">{error}</Field> : <Spinner />}</PanelSection>;
 
   const dl = state.download;
+  const gpu = state.gpu;
+  const canEnable = state.dll_ready && state.shim_ready && !!gpu?.model;
+  const pci = gpu ? `1002:${gpu.device.toString(16).padStart(4, "0")}` : "";
   return (
     <>
       <PanelSection title={`AMD FSR ${state.recipe.fsr}`}>
+        <PanelSectionRow>
+          {!gpu ? (
+            <Field label="No AMD GPU found" description="FSR4 Injector needs an AMD Radeon GPU." />
+          ) : gpu.model ? (
+            <Field label={`${gpu.arch} GPU`}
+              description={`PCI ${pci}. AMD's FSR ${state.recipe.fsr} picks its ${gpu.model_name} model here.` +
+                (gpu.verified ? "" : " Beta: not tested on this GPU yet; please report how it goes.")} />
+          ) : (
+            <Field label="GPU not supported"
+              description={`AMD's FSR 4 has no model for this GPU (${gpu.arch}, PCI ${pci}), so games stay on FSR 3.`} />
+          )}
+        </PanelSectionRow>
         {state.dll_ready ? (
           <PanelSectionRow><Field label="AMD FSR4 DLL" description={state.recipe.driver}>Ready</Field></PanelSectionRow>
         ) : dl.state === "running" ? (
@@ -234,7 +260,7 @@ const Content: FC = () => {
                 : onlineStatus(g.appid) === "online" ? "Online multiplayer: skipped by Turn on all. Turning it on is at your own risk."
                 : undefined}
               checked={g.enabled}
-              disabled={busy !== null || (!g.enabled && (g.anticheat || !state.dll_ready || !state.shim_ready))}
+              disabled={busy !== null || (!g.enabled && (g.anticheat || !canEnable))}
               onChange={on => toggle(g, on)}
             />
           </PanelSectionRow>
@@ -245,7 +271,7 @@ const Content: FC = () => {
             {scanning ? "Scanning…" : "Rescan library"}
           </ButtonItem>
         </PanelSectionRow>
-        {state.dll_ready && state.shim_ready && state.games.some(g => !g.enabled && !g.anticheat) && (
+        {canEnable && state.games.some(g => !g.enabled && !g.anticheat) && (
           <PanelSectionRow>
             <ButtonItem layout="below" disabled={busy !== null} onClick={() => applyAll(true)}
               description="Sets up every compatible game in the list. Online games and games with anti-cheat are skipped.">

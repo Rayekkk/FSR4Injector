@@ -23,6 +23,7 @@ if PLUGIN_DIR not in sys.path:
 import fsr4_dll  # noqa: E402
 import fsr4_env  # noqa: E402
 import fsr4_games  # noqa: E402
+import fsr4_gpu  # noqa: E402
 import fsr4_install  # noqa: E402
 
 SHIM_PATH = os.path.join(PLUGIN_DIR, "bin", fsr4_install.SHIM)
@@ -38,6 +39,13 @@ def _ffx_path():
     return os.path.join(_data_dir(), fsr4_install.FFX)
 
 
+def gpu_unsupported(gpu):
+    if not gpu:
+        return "No AMD GPU was found, or its details could not be read."
+    return (f"AMD's FSR 4 has no model for this GPU (PCI 1002:{gpu['device']:04x}, family {gpu['family']}, "
+            f"revision {gpu['rev']}), so games would stay on FSR 3.")
+
+
 def _steam_root():
     home = getattr(decky, "DECKY_USER_HOME", os.path.expanduser("~"))
     return os.path.join(home, ".local", "share", "Steam")
@@ -51,6 +59,8 @@ class Plugin:
         self.games = []
         self.download = {"state": "idle", "done": 0, "total": fsr4_dll.RECIPE["dll_size"], "error": ""}
         self.dll_ok = await asyncio.to_thread(fsr4_dll.is_valid, _ffx_path())
+        self.gpu = await asyncio.to_thread(fsr4_gpu.detect)
+        decky.logger.info(f"GPU: {self.gpu}")
         self.lock = asyncio.Lock()
         self._cancel = False
         self.sessions = {}  # appid -> session start (epoch s)
@@ -80,6 +90,7 @@ class Plugin:
         return {
             "dll_ready": self.dll_ok,
             "shim_ready": os.path.isfile(SHIM_PATH),
+            "gpu": self.gpu,
             "recipe": {k: fsr4_dll.RECIPE[k] for k in ("driver", "fsr", "dll_size")},
             "eula_url": fsr4_dll.EULA_URL,
             "download": self.download,
@@ -140,9 +151,11 @@ class Plugin:
                 return {"ok": False, "error": "Game not found; rescan the library."}
             if not (self.dll_ok and os.path.isfile(SHIM_PATH)):
                 return {"ok": False, "error": "Download the AMD FSR4 DLL first."}
+            if not (self.gpu and self.gpu["model"]):
+                return {"ok": False, "error": gpu_unsupported(self.gpu)}
             try:
                 options = await asyncio.to_thread(fsr4_install.enable, self.manifest, game, SHIM_PATH, _ffx_path(),
-                                                  launch_options)
+                                                  launch_options, self.gpu)
             except fsr4_install.InstallError as e:
                 return {"ok": False, "error": str(e)}
             decky.logger.info(f"enabled FSR4 for {appid} in {game['target_dir']}")
