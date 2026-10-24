@@ -64,14 +64,28 @@ set_opts "WINEDLLOVERRIDES=$overrides=n,b FSR_WATERMARK=1 PROTON_LOG=+amdxc $cmd
 rm -f ~/steam-$app.log
 # LAUNCH=<n>: Steam launch entry; -1 opens Steam's chooser in games with several entries.
 cdp "SteamClient.Apps.RunGame('$app', '', ${LAUNCH:--1}, 100), 'run'" >/dev/null
-# Match the process name, not -f: our own command line contains the exe path.
-for i in $(seq 1 120); do pgrep -x "${exe##*/}" >/dev/null && break; sleep 1; done
-for t in $(seq 30 30 "$wait"); do
-  sleep 30; gamescopectl screenshot "$out/shot_${t}s.png" >/dev/null 2>&1
-  echo "${t}s: proton log lines $(wc -l < ~/steam-$app.log 2>/dev/null)" >> "$out/info.txt"
-done
+# Wine shows the game as a Windows path, case not kept (retail\hitman3.exe); our own command line has no backslash.
+running() { pgrep -i -f "\\\\${exe##*/}" >/dev/null; }
+seen=0; for i in $(seq 1 120); do running && { seen=1; break; }; sleep 1; done
+if [ "${HOLD:-0}" = 1 ]; then
+  # never end a session someone plays just because we failed to spot the process; wait for $out/stop instead
+  [ $seen = 1 ] || { echo "game process not spotted; holding until stop" >> "$out/info.txt"; ps -eo args | grep -i "${exe%.*}" > "$out/ps.txt"; }
+  # HOLD=1: someone plays; touch $out/shot for a screenshot, $out/stop (or quit the game) to finish. <seconds> caps it.
+  n=0
+  for t in $(seq 1 "$wait"); do
+    sleep 1
+    if [ -e "$out/shot" ]; then rm -f "$out/shot"; n=$((n+1)); gamescopectl screenshot "$out/held_$n.png" >/dev/null 2>&1; echo "shot $n at ${t}s" >> "$out/info.txt"; fi
+    [ -e "$out/stop" ] && break
+    [ $seen = 0 ] || running || { echo "game ended at ${t}s" >> "$out/info.txt"; break; }
+  done
+else
+  for t in $(seq 30 30 "$wait"); do
+    sleep 30; gamescopectl screenshot "$out/shot_${t}s.png" >/dev/null 2>&1
+    echo "${t}s: proton log lines $(wc -l < ~/steam-$app.log 2>/dev/null)" >> "$out/info.txt"
+  done
+fi
 cdp "SteamClient.Apps.TerminateApp('$app', false), 'stop'" >/dev/null
-for i in $(seq 1 60); do pgrep -x "${exe##*/}" >/dev/null || break; sleep 1; done
+for i in $(seq 1 60); do running || break; sleep 1; done
 sleep 2
 
 cp "$dir/OptiScaler.log" "$out/" 2>/dev/null; cp "$dir/fsr4injector.status.json" "$out/" 2>/dev/null
