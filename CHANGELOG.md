@@ -26,8 +26,12 @@ First release: AMD's official FSR 4.1.2 with its Lite model in FSR 3.1+ games on
   files that are still unchanged and restores the launch options, also when another plugin
   such as Decky Launch Options has its own entry there.
 - **All games at once:** **Turn on FSR4 in all games** sets up every compatible game in the
-  list (anti-cheat games are skipped) and **Turn off FSR4 and restore all games** puts every one
-  back as it was. Both show their progress and a summary.
+  list and **Turn off FSR4 and restore all games** puts every one back as it was. Both show
+  their progress and a summary.
+- **Online games left alone:** Turn on all skips games Steam lists as online (MMO,
+  Cross-Platform Multiplayer, Online PvP, Online Co-op) and games it has no categories for; the
+  list marks them, and you can still turn them on one by one.
 - **Updates keep your games set up:** the plugin's DLL in each game is brought up to date at
   the next start. **Turn off FSR4 and restore all games** cleans up before you uninstall.
-- Anti-cheat games (Easy Anti-Cheat, BattlEye) are detected and blocked.
+- Anti-cheat games (Easy Anti-Cheat, BattlEye, Vanguard, XIGNCODE, nProtect GameGuard,
+  PunkBuster, EQU8) are detected and blocked.

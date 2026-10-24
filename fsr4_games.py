@@ -11,7 +11,10 @@ import os
 import re
 
 FFX_DLLS = ("amd_fidelityfx_dx12.dll", "amd_fidelityfx_upscaler_dx12.dll", "amd_fidelityfx_loader_dx12.dll")
-ANTICHEAT = ("easyanticheat", "battleye", "beservice", "start_protected_game.exe", "eac_launcher")
+# Lower-case name fragments of anti-cheat files and folders: EAC, BattlEye, Vanguard, XIGNCODE, nProtect GameGuard,
+# PunkBuster, EQU8. Online games without any of these are caught by the panel through Steam's store categories.
+ANTICHEAT = ("easyanticheat", "battleye", "beservice", "start_protected_game.exe", "eac_launcher",
+             "vanguard", "xigncode", "gameguard", "npgamemon", "punkbuster", "pbsvc", "equ8")
 MAX_DEPTH = 5
 
 _KV = re.compile(r'"([^"]+)"\s+"([^"]*)"')

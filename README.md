@@ -28,7 +28,7 @@ that one missing answer and manages everything around it.
 |---|---|
 | **One-tap setup** | Fetches AMD's FSR 4 library straight from AMD's servers (about 43 MB) and checks it |
 | **Per-game switch** | Lists your installed games that use FSR 3.1 or newer and turns FSR 4 on or off for each |
-| **All at once** | **Turn on FSR4 in all games** sets up every compatible game; **Turn off FSR4 and restore all games** puts every one back |
+| **All at once** | **Turn on FSR4 in all games** sets up every compatible offline game; **Turn off FSR4 and restore all games** puts every one back |
 | **Never fails silently** | After every session it checks that FSR 4 really ran, and tells you when it did not and why |
 | **Update aware** | Marks a game for a re-check after a SteamOS or Proton update and says what changed |
 | **Clean rollback** | Turning a game off removes exactly what was added and puts its launch options back |
@@ -46,9 +46,16 @@ model 15.1 ms. One run per variant.
 | Games | DirectX 12 games that ship `amd_fidelityfx_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll` or `amd_fidelityfx_loader_dx12.dll` (FSR 3.1 or newer) |
 | Network | Once, to download AMD's library from `drivers.amd.com` |
 
-FSR 2, FSR 3.0 and Vulkan games are not supported. Games with Easy Anti-Cheat or BattlEye are
-blocked: adding DLLs to their folder can get you kicked or banned. Other RDNA 3.5 GPUs are
-refused until they have been checked.
+FSR 2, FSR 3.0 and Vulkan games are not supported. Other RDNA 3.5 GPUs are refused until they
+have been checked.
+
+Adding DLLs to a game's folder can get you kicked or banned in online games, so:
+
+- games with anti-cheat files (Easy Anti-Cheat, BattlEye, Vanguard, XIGNCODE, nProtect
+  GameGuard, PunkBuster, EQU8) are blocked;
+- games Steam lists as online (MMO, Cross-Platform Multiplayer, Online PvP or Online Co-op),
+  and games Steam gives no categories for, are skipped by **Turn on FSR4 in all games** and
+  marked in the list. You can still turn them on one by one, at your own risk.
 
 ## Installation
 

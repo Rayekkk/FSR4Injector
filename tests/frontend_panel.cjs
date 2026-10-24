@@ -19,6 +19,9 @@ function harness() {
   };
   const jsx = { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }), Fragment: 'Fragment' };
   const callable = name => (...args) => new Promise((resolve, reject) => calls.push({ name, args, resolve, reject, settled: false }));
+  // Steam store categories per app; 36/38 are Online PvP / Online Co-op. Apps not listed have no data.
+  const categories = { 1817070: [2, 22], 2: [2, 28], 4: [2, 22], 5: [2, 1, 36, 38] };
+  const appStore = { GetAppOverviewByAppID: id => (id in categories ? { store_category: categories[id] } : null) };
   const SteamClient = {
     GameSessions: { RegisterForAppLifetimeNotifications(fn) { callbacks.lifetime = fn; return { unregister() {} }; } },
     Apps: {
@@ -31,7 +34,7 @@ function harness() {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const mod = { exports: {} };
   vm.runInNewContext(output, {
-    module: mod, exports: mod.exports, console, SteamClient, setTimeout, clearTimeout, setInterval, clearInterval,
+    module: mod, exports: mod.exports, console, SteamClient, appStore, setTimeout, clearTimeout, setInterval, clearInterval,
     require(name) {
       if (name === 'react') return hooks;
       if (name === 'react/jsx-runtime') return jsx;
@@ -113,13 +116,19 @@ const state = (over = {}) => ({
   await settle();
   assert.deepEqual(h.applied, [[1817070, 'WINEDLLOVERRIDES=amdxc64=n,b ~/.dlo/run %command%']]);
 
-  // Turn on in all games: every compatible game except anti-cheat ones, one at a time, with progress and a summary.
+  // Turn on in all games: every compatible offline game, one at a time, with progress and a summary. Anti-cheat
+  // games, online games (Steam categories) and games Steam has no data for are skipped.
   h.applied.length = 0;
   h.respond('get_state', state({ games: [
     { ...game, enabled: true, verdict: 'ok' }, { ...game, appid: 2, name: 'E33' },
-    { ...game, appid: 3, name: 'Online', anticheat: true }, { ...game, appid: 4, name: 'Hitman' } ] }));
+    { ...game, appid: 3, name: 'Anti-cheat', anticheat: true }, { ...game, appid: 4, name: 'Hitman' },
+    { ...game, appid: 5, name: 'Forza' }, { ...game, appid: 6, name: 'No data' } ] }));
   await settle();
   tree = h.render();
+  const forza = byType(tree, 'ToggleField').find(t => t.props.label === 'Forza');
+  assert.match(forza.props.description, /Online multiplayer: skipped by Turn on all/);
+  assert.ok(!forza.props.disabled, 'an online game can still be turned on by hand');
+  assert.equal(byType(tree, 'ToggleField').find(t => t.props.label === 'No data').props.description, undefined);
   assert.ok(button(tree, 'Turn off FSR4 and restore all games'), 'restore-all is offered when a game is on');
   button(tree, 'Turn on FSR4 in all games').props.onClick();
   await settle();
@@ -129,8 +138,9 @@ const state = (over = {}) => ({
   await settle();
   assert.equal(h.respond('enable_game', { ok: false, error: 'not ours' }).args[0], 4);
   await settle();
-  assert.ok(!h.pending('enable_game'), 'anti-cheat and already-enabled games are skipped');
-  assert.equal(h.toasts.at(-1).body, 'FSR4 turned on in 1 game. 1 game could not be changed; see the messages above.');
+  assert.ok(!h.pending('enable_game'), 'anti-cheat, online, unknown and already-enabled games are skipped');
+  assert.equal(h.toasts.at(-1).body, 'FSR4 turned on in 1 game. 1 game could not be changed; see the messages above. '
+    + 'Skipped as possibly online: 2 games; turn them on by hand if you want.');
   h.respond('get_state', state({ games: [{ ...game, enabled: true }, { ...game, appid: 2, name: 'E33', enabled: true }] }));
   await settle();
 

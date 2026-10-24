@@ -6,6 +6,21 @@ import { ButtonItem, Field, PanelSection, PanelSectionRow, Spinner, staticClasse
 import { FC, useCallback, useEffect, useState } from "react";
 
 declare const SteamClient: any;
+declare const appStore: any;
+
+// Steam store categories that mean online play: MMO, Cross-Platform Multiplayer, Online PvP, Online Co-op.
+// The generic Multi-player (1) and PvP (49) also cover local-only games, so they do not count.
+const ONLINE_CATEGORIES = new Set([20, 27, 36, 38]);
+
+const onlineStatus = (appid: number): "online" | "offline" | "unknown" => {
+  try {
+    const categories = appStore?.GetAppOverviewByAppID(appid)?.store_category;
+    if (!Array.isArray(categories) || !categories.length) return "unknown";
+    return categories.some((c: number) => ONLINE_CATEGORIES.has(c)) ? "online" : "offline";
+  } catch {
+    return "unknown";
+  }
+};
 
 interface Game {
   appid: number;
@@ -154,7 +169,10 @@ const Content: FC = () => {
   // One game at a time, so each keeps its own launch options and errors. Restoring all is also the cleanup before a
   // real uninstall: plugin updates keep games configured (Decky runs uninstall on update).
   const applyAll = async (on: boolean) => {
-    const targets = (state?.games ?? []).filter(g => (on ? !g.enabled && !g.anticheat : g.enabled));
+    // Turning on skips online games too; a game Steam has no categories for counts as online rather than a guess.
+    const candidates = (state?.games ?? []).filter(g => (on ? !g.enabled && !g.anticheat : g.enabled));
+    const targets = on ? candidates.filter(g => onlineStatus(g.appid) === "offline") : candidates;
+    const skipped = candidates.length - targets.length;
     let ok = 0;
     setBusy(-1);
     for (const [i, g] of targets.entries()) {
@@ -166,7 +184,8 @@ const Content: FC = () => {
     const failed = targets.length - ok;
     const games = (n: number) => `${n} game${n === 1 ? "" : "s"}`;
     notify("FSR4 Injector", (on ? `FSR4 turned on in ${games(ok)}.` : `${games(ok)} restored to how they were.`) +
-      (failed ? ` ${games(failed)} could not be changed; see the messages above.` : ""));
+      (failed ? ` ${games(failed)} could not be changed; see the messages above.` : "") +
+      (skipped ? ` Skipped as possibly online: ${games(skipped)}; turn ${skipped === 1 ? "it" : "them"} on by hand if you want.` : ""));
     refresh();
   };
 
@@ -210,7 +229,10 @@ const Content: FC = () => {
           <PanelSectionRow key={g.appid}>
             <ToggleField
               label={g.name}
-              description={g.anticheat ? "Anti-cheat detected: not supported" : g.enabled ? `${VERDICT_LABEL[g.verdict]}. ${g.reason}` : undefined}
+              description={g.anticheat ? "Anti-cheat detected: not supported"
+                : g.enabled ? `${VERDICT_LABEL[g.verdict]}. ${g.reason}`
+                : onlineStatus(g.appid) === "online" ? "Online multiplayer: skipped by Turn on all. Turning it on is at your own risk."
+                : undefined}
               checked={g.enabled}
               disabled={busy !== null || (!g.enabled && (g.anticheat || !state.dll_ready || !state.shim_ready))}
               onChange={on => toggle(g, on)}
@@ -226,7 +248,7 @@ const Content: FC = () => {
         {state.dll_ready && state.shim_ready && state.games.some(g => !g.enabled && !g.anticheat) && (
           <PanelSectionRow>
             <ButtonItem layout="below" disabled={busy !== null} onClick={() => applyAll(true)}
-              description="Sets up every compatible game in the list. Games with anti-cheat are skipped.">
+              description="Sets up every compatible game in the list. Online games and games with anti-cheat are skipped.">
               {bulk?.on ? `Turning on… ${bulk.text}` : "Turn on FSR4 in all games"}
             </ButtonItem>
           </PanelSectionRow>

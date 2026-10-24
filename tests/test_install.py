@@ -41,11 +41,13 @@ class Discovery(unittest.TestCase):
                  ["Sandfall/Binaries/Win64/SandFall.exe", "Sandfall/Binaries/Win64/amd_fidelityfx_upscaler_dx12.dll"])
         _library(sd, 4000, "No FSR", "NoFSR", ["game.exe"])
         _library(steam, 5000, "Online", "Online", ["amd_fidelityfx_dx12.dll", "EasyAntiCheat/EasyAntiCheat_x64.dll"])
+        _library(steam, 5001, "Korean MMO", "KMMO", ["amd_fidelityfx_dx12.dll", "XIGNCODE/x3.xem"])
+        _library(steam, 5002, "Old FPS", "OldFPS", ["amd_fidelityfx_dx12.dll", "pb/pbsvc.exe"])
 
         games = {g["appid"]: g for g in fsr4_games.scan(steam)}
-        self.assertEqual(set(games), {1817070, 1903340, 5000})
+        self.assertEqual(set(games), {1817070, 1903340, 5000, 5001, 5002})
         self.assertTrue(games[1903340]["target_dir"].endswith(os.path.join("Binaries", "Win64")))
-        self.assertTrue(games[5000]["anticheat"])
+        self.assertTrue(all(games[a]["anticheat"] for a in (5000, 5001, 5002)))
         self.assertFalse(games[1817070]["anticheat"])
 
 
