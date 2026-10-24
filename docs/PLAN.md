@@ -30,8 +30,13 @@ Cel: plugin Decky, który po kliknięciu sam włącza oficjalny FSR 4.1.2 (model
 ### Paczka
 `npm run package` → `FSR4Injector-<wersja>.zip` (powtarzalny). Skrypt sprawdza gotowe archiwum: wymagane pliki (w tym źródło shimu i LGPL), brak plików AMD (`amdxcffx64*`, `amdvkffx64*`), brak `.exe` i cache. README i NOTICE gotowe.
 
-### Braki
-Ikona i obrazek do sklepu, sprawdzanie aktualizacji pluginu, wykrywanie zmian SteamOS/Protona („niezweryfikowane po aktualizacji”), git.
+### Zrobione później (2026-10-24)
+Ikona (plakietka „4”), wykrywanie zmian SteamOS/Protona („↻ Re-check needed” + powiadomienie po aktualizacji SteamOS, sprawdzone na konsoli), odświeżanie shimu w grach po aktualizacji pluginu, panel bez spinnera przy ponownym otwarciu i z informacją zwrotną „Rescan library”, test panelu (`tests/frontend_panel.cjs`), repo w stylu Companionów, CI tylko z testami.
+
+### Dalej
+- **FSR4 dla gier bez FSR 3.1** (FSR 2 / 3.0 / DLSS / XeSS): przez OptiScaler z naszym DLL 4.1.2 jako providerem; plan i zgoda przed budową.
+- Grafika repo (`FSR4Injector.png`) i zrzuty do `docs/screenshots/` – od autora.
+- Sprawdzanie aktualizacji pluginu z panelu (jak w Companionach).
 
 ## Shim (`shim/`, LGPL-2.1+)
 - Port `dlls/amdxc64` z GE-Proton11-11 (Etaash Mathamsetty): FfxApi (UpdateFfxApiProvider[Ex]), Factory, Device8, ShaderIntrinsics (przez vkd3d `ID3D12DeviceExt3`), CreateDevice, AntiLag, watermark.
