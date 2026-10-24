@@ -64,8 +64,9 @@ set_opts "WINEDLLOVERRIDES=$overrides=n,b FSR_WATERMARK=1 PROTON_LOG=+amdxc $cmd
 rm -f ~/steam-$app.log
 # LAUNCH=<n>: Steam launch entry; -1 opens Steam's chooser in games with several entries.
 cdp "SteamClient.Apps.RunGame('$app', '', ${LAUNCH:--1}, 100), 'run'" >/dev/null
-# Wine shows the game as a Windows path, case not kept (retail\hitman3.exe); our own command line has no backslash.
-running() { pgrep -i -f "\\\\${exe##*/}" >/dev/null; }
+# Wine shows the game as a Windows path, case not kept (retail\hitman3.exe); in our own command line the bare name
+# follows a space. (pgrep does not match a literal backslash.)
+running() { pgrep -i -f "[^ /]${exe##*/}" >/dev/null; }
 seen=0; for i in $(seq 1 120); do running && { seen=1; break; }; sleep 1; done
 if [ "${HOLD:-0}" = 1 ]; then
   # never end a session someone plays just because we failed to spot the process; wait for $out/stop instead
