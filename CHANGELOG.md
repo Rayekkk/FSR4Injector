@@ -2,7 +2,7 @@
 
 All notable changes to FSR4 Injector, newest first.
 
-## [0.1.0] - 2026-10-24
+## [0.1.0] - 2026-10-25
 
 First release: AMD's official FSR 4.1.2 with its Lite model in FSR 3.1+ games on the Radeon
 880M/890M (Ryzen Z2 Extreme, Ryzen AI 9 300) under Proton.
