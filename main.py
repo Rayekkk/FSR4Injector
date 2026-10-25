@@ -145,7 +145,7 @@ class Plugin:
 
     async def perform_update(self, expected_version: str) -> dict:
         home = getattr(decky, "DECKY_USER_HOME", os.path.expanduser("~"))
-        return await asyncio.to_thread(fsr4_updates.download, VERSION, expected_version, os.path.join(home, "Downloads"))
+        return await asyncio.to_thread(fsr4_updates.download, VERSION, expected_version, fsr4_updates.downloads_dir(home))
 
     async def scan_games(self) -> dict:
         await _ready.wait()

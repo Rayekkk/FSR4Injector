@@ -107,6 +107,20 @@ class Updates(unittest.TestCase):
         res = U.download("1.0.0", "1.1.0", self.downloads, self.serve(_release("1.2.0", data), data))
         self.assertIn("changed", res["error"])
 
+    def test_downloads_folder_follows_the_desktop_language(self):
+        home = tempfile.mkdtemp()
+        self.assertEqual(U.downloads_dir(home), os.path.join(home, "Downloads"))  # no user-dirs.dirs
+        cfg = os.path.join(home, ".config")
+        os.makedirs(cfg)
+        for line, want in (('XDG_DOWNLOAD_DIR="$HOME/Pobrane"', home + "/Pobrane"),
+                           (f'XDG_DOWNLOAD_DIR="{home}/Téléchargements"', home + "/Téléchargements"),
+                           ('XDG_DOWNLOAD_DIR="/tmp"', os.path.join(home, "Downloads")),  # outside home
+                           ('XDG_DOWNLOAD_DIR="$HOME/../x"', os.path.join(home, "Downloads")),
+                           ('XDG_DOWNLOAD_DIR="$OTHER/x"', os.path.join(home, "Downloads"))):
+            with open(os.path.join(cfg, "user-dirs.dirs"), "w", encoding="utf-8") as f:
+                f.write(f'# comment\nXDG_DESKTOP_DIR="$HOME/Pulpit"\n{line}\n')
+            self.assertEqual(U.downloads_dir(home), want, line)
+
     def test_github_errors(self):
         def http(code):
             return opener({U.API_URL: urllib.error.HTTPError(U.API_URL, code, "x", {}, None)})

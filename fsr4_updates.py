@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2026 Rayekkk
 
-"""Checking GitHub for a newer FSR4 Injector release and saving its ZIP to ~/Downloads (as the Companion plugins do).
+"""Checking GitHub for a newer FSR4 Injector release and saving its ZIP to the user's Downloads folder (as the Companion plugins do).
 
 Only a published, stable release of this repository is accepted, with exactly one FSR4Injector-<version>.zip whose
 size and SHA-256 GitHub reports; the ZIP is checked entry by entry before it is kept. Installing stays the user's
@@ -34,6 +34,26 @@ _DIGEST = re.compile(r"sha256:([0-9a-fA-F]{64})")
 
 class UpdateError(Exception):
     pass
+
+
+def downloads_dir(home):
+    """The user's download folder: XDG_DOWNLOAD_DIR, which a desktop in another language names differently
+    (e.g. ~/Pobrane), else ~/Downloads. Only a folder inside home is accepted."""
+    try:
+        with open(os.path.join(home, ".config", "user-dirs.dirs"), encoding="utf-8") as f:
+            for line in f:
+                match = re.fullmatch(r'\s*XDG_DOWNLOAD_DIR="([^"\r\n]*)"\s*', line.rstrip("\n"))
+                if not match:
+                    continue
+                path = match.group(1)
+                if path.startswith("$HOME/"):
+                    path = home + path[5:]
+                if path.startswith(home + "/") and "$" not in path and ".." not in path.split("/"):
+                    return path
+                break
+    except (OSError, UnicodeError):
+        pass
+    return os.path.join(home, "Downloads")
 
 
 def version_tuple(value):

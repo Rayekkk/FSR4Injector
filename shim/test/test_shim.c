@@ -69,11 +69,12 @@ int main(int argc, char **argv)
     _putenv(env);
 
     /* loading alone marks the session, with the Proton dir Steam passed (first entry, JSON-escaped) */
-    _putenv("STEAM_COMPAT_TOOL_PATHS=/home/deck/Proton \"11\"\\x:/second");
+    _wputenv(L"STEAM_COMPAT_TOOL_PATHS=/home/deck/Proton \"11\"\\x \u017b\u00f3\u0142w:/second"); /* "Żółw" */
     fsr4i_init(GetModuleHandleW(NULL));
     json = read_file(status_path);
     CHECK(json && strstr(json, "\"ffx_requested\":false") && strstr(json, "\"started\":\"20"));
-    CHECK(json && strstr(json, "\"compat_tool\":\"/home/deck/Proton \\\"11\\\"\\\\x\""));
+    /* written as UTF-8 whatever code page Wine uses for the system language */
+    CHECK(json && strstr(json, "\"compat_tool\":\"/home/deck/Proton \\\"11\\\"\\\\x \xc5\xbb\xc3\xb3\xc5\x82w\""));
 
     /* GPU table: only verified RDNA 3.5 parts get an answer */
     CHECK(fsr4i_lookup_family(0x1002, 0x150e, &family, &rev) && family == 150 && rev == 20);

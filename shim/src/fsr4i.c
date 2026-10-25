@@ -129,8 +129,14 @@ void fsr4i_init(HMODULE self)
     /* Patch amdxcffx64 whoever loads it: OptiScaler has its own IAmdExtFfxApi and never calls ours. */
     if (reg) reg(0, on_dll_loaded, NULL, &ldr_cookie);
     if ((ffx = GetModuleHandleW(L"amdxcffx64.dll"))) fsr4i_on_ffx_loaded(ffx);
-    /* lets the plugin notice a Proton update since FSR4 was last confirmed */
-    json_escape_first_path(getenv("STEAM_COMPAT_TOOL_PATHS"), st.compat_tool, sizeof(st.compat_tool));
+    /* lets the plugin notice a Proton update since FSR4 was last confirmed. Read as UTF-16: getenv() would give
+     * it in Wine's code page, which follows the system language, and the status file must be UTF-8. */
+    {
+        const WCHAR *w = _wgetenv(L"STEAM_COMPAT_TOOL_PATHS");
+        char utf8[2048];
+        if (!w || !WideCharToMultiByte(CP_UTF8, 0, w, -1, utf8, sizeof(utf8), NULL, NULL)) utf8[0] = 0;
+        json_escape_first_path(utf8, st.compat_tool, sizeof(st.compat_tool));
+    }
     GetSystemTime(&t);
     snprintf(st.started, sizeof(st.started), "%04u-%02u-%02uT%02u:%02u:%02uZ",
              t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
