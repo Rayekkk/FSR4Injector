@@ -3,9 +3,9 @@
 set -u
 T=~/fsr4test; Z=$T/release/FSR4Injector-0.1.0.zip; S=~/homebrew/settings/FSR4Injector
 G="$HOME/.local/share/Steam/steamapps/common/Marvel's Spider-Man Remastered"
-tog() { sed -e "s/__APPID__/1817070/" -e "s/__ON__/$1/" $T/panel_toggle.js > /tmp/pt.js; python3 -I ~/lg2c-tools/cdp.py eval "$(cat /tmp/pt.js)" >/dev/null; }
+tog() { sed -e "s/__APPID__/1817070/" -e "s/__ON__/$1/" $T/panel_toggle.js > /tmp/pt.js; python3 -I ~/fsr4test/cdp.py eval "$(cat /tmp/pt.js)" >/dev/null; }
 view() { $T/fsr4call.sh get_state | python3 -c 'import json,sys; s=json.loads(json.loads(sys.stdin.read())); g=[g for g in s["games"] if g["appid"]==1817070][0]; print("  panel:", g["verdict"], "|", g["reason"])'; }
-toast() { for i in $(seq 1 10); do for t in notificationtoasts_uid2 "Steam Big Picture Mode"; do x=$(CDP_TARGET="$t" timeout 3 python3 -I ~/lg2c-tools/cdp.py eval "document.body.innerText.includes('$1') ? 'yes' : ''" 2>/dev/null); [ "$x" = '"yes"' ] && { echo "  toast '$1' in $t"; return; }; done; sleep 0.5; done; echo "  toast '$1': not seen"; }
+toast() { for i in $(seq 1 10); do for t in notificationtoasts_uid2 "Steam Big Picture Mode"; do x=$(CDP_TARGET="$t" timeout 3 python3 -I ~/fsr4test/cdp.py eval "document.body.innerText.includes('$1') ? 'yes' : ''" 2>/dev/null); [ "$x" = '"yes"' ] && { echo "  toast '$1' in $t"; return; }; done; sleep 0.5; done; echo "  toast '$1': not seen"; }
 
 echo "1) install, enable, play"
 $T/decky_install.sh $Z "FSR4 Injector" 0.1.0 >/dev/null; sleep 2
@@ -41,5 +41,4 @@ view
 echo "4) rollback"
 tog false
 echo "  files left: $(ls "$G" | grep -ci -E 'amdxc|fsr4injector')"
-python3 -I ~/lg2c-tools/cdp.py eval "new Promise(r=>{let d=0;const g=SteamClient.Apps.RegisterForAppDetails(1817070,x=>{if(d)return;d=1;setTimeout(()=>g?.unregister?.(),0);r(x?.strLaunchOptions)})})"
-python3 -I ~/lg2c-tools/cdp.py magic-on >/dev/null
+python3 -I ~/fsr4test/cdp.py eval "new Promise(r=>{let d=0;const g=SteamClient.Apps.RegisterForAppDetails(1817070,x=>{if(d)return;d=1;setTimeout(()=>g?.unregister?.(),0);r(x?.strLaunchOptions)})})"

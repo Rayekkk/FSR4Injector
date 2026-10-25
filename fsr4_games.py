@@ -74,6 +74,10 @@ def scan(steam_root):
             appid, title, installdir = (_values(text, k) for k in ("appid", "name", "installdir"))
             if not (appid and installdir) or not appid[0].isdigit():
                 continue
+            # installdir is a folder name in steamapps/common; anything path-like could lead out of the library
+            # (a symlinked game folder is fine: it is still that name)
+            if installdir[0] in ("", ".", "..") or "/" in installdir[0] or "\\" in installdir[0]:
+                continue
             install_dir = os.path.join(apps, "common", installdir[0])
             if not os.path.isdir(install_dir):
                 continue

@@ -52,6 +52,9 @@ typedef LONG (NTAPI *ldr_unregister_fn)(void *cookie);
 #define LDR_DLL_NOTIFICATION_REASON_LOADED 1
 
 static HMODULE self_module;
+/* Resolved once at attach: GetModuleFileNameW takes the loader lock, and the loader notification below holds it
+ * while it waits for ours, so nothing may need the loader lock while our lock is held. */
+static WCHAR status_path[MAX_PATH], gpu_path[MAX_PATH];
 static void *ldr_cookie;
 static SRWLOCK lock = SRWLOCK_INIT;
 static gpa_fn real_gpa;
@@ -117,7 +120,11 @@ void fsr4i_init(HMODULE self)
     HMODULE ntdll = GetModuleHandleW(L"ntdll.dll"), ffx;
     ldr_register_fn reg = ntdll ? (ldr_register_fn)GetProcAddress(ntdll, "LdrRegisterDllNotification") : NULL;
     SYSTEMTIME t;
+    const char *env = getenv("FSR4I_STATUS");
     self_module = self;
+    if (env && *env) MultiByteToWideChar(CP_UTF8, 0, env, -1, status_path, MAX_PATH);
+    else if (!fsr4i_module_path(L"fsr4injector.status.json", status_path, MAX_PATH)) status_path[0] = 0;
+    if (!fsr4i_module_path(L"fsr4injector.gpu", gpu_path, MAX_PATH)) gpu_path[0] = 0;
     /* Patch amdxcffx64 whoever loads it: OptiScaler has its own IAmdExtFfxApi and never calls ours. */
     if (reg) reg(0, on_dll_loaded, NULL, &ldr_cookie);
     if ((ffx = GetModuleHandleW(L"amdxcffx64.dll"))) fsr4i_on_ffx_loaded(ffx);
@@ -187,15 +194,13 @@ int fsr4i_status_json(char *buf, size_t len)
 static void write_status_locked(void)
 {
     char json[2048];
-    WCHAR path[MAX_PATH], tmp[MAX_PATH + 4];
-    const char *env = getenv("FSR4I_STATUS");
+    WCHAR tmp[MAX_PATH + 4];
+    const WCHAR *path = status_path;
     HANDLE f;
     DWORD written;
     int n = fsr4i_status_json(json, sizeof(json));
 
-    if (n <= 0 || n >= (int)sizeof(json) || !strcmp(json, last_written)) return;
-    if (env && *env) MultiByteToWideChar(CP_UTF8, 0, env, -1, path, MAX_PATH);
-    else if (!fsr4i_module_path(L"fsr4injector.status.json", path, MAX_PATH)) return;
+    if (n <= 0 || n >= (int)sizeof(json) || !strcmp(json, last_written) || !path[0]) return;
     swprintf(tmp, MAX_PATH + 4, L"%ls.tmp", path);
 
     f = CreateFileW(tmp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -219,12 +224,11 @@ static void update_status(void)
  * Used only when it describes the GPU we run on, so a game folder moved to another machine is not misled. */
 static BOOL read_gpu_file(UINT device, UINT *family, UINT *rev)
 {
-    WCHAR path[MAX_PATH];
     unsigned d, f, r;
     FILE *file;
     BOOL ok;
 
-    if (!fsr4i_module_path(L"fsr4injector.gpu", path, MAX_PATH) || !(file = _wfopen(path, L"r"))) return FALSE;
+    if (!gpu_path[0] || !(file = _wfopen(gpu_path, L"r"))) return FALSE;
     ok = fscanf(file, "%u %u %u", &d, &f, &r) == 3 && d == device && f;
     fclose(file);
     if (ok)

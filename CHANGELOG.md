@@ -2,7 +2,7 @@
 
 All notable changes to FSR4 Injector, newest first.
 
-## [0.1.0] - 2026-10-25
+## [1.0.0] - 2026-10-25
 
 First release: AMD's official FSR 4.1.2 with its Lite model in FSR 3.1+ games on the Radeon
 880M/890M (Ryzen Z2 Extreme, Ryzen AI 9 300) under Proton.
@@ -35,8 +35,19 @@ First release: AMD's official FSR 4.1.2 with its Lite model in FSR 3.1+ games on
   their progress and a summary.
 - **Online games left alone:** Turn on all skips games Steam lists as online (MMO,
   Cross-Platform Multiplayer, Online PvP, Online Co-op) and games it has no categories for; the
-  list marks them, and you can still turn them on one by one.
+  list marks online games, and you can still turn any of them on one by one.
 - **Updates keep your games set up:** the plugin's DLL in each game is brought up to date at
   the next start. **Turn off FSR4 and restore all games** cleans up before you uninstall.
-- Anti-cheat games (Easy Anti-Cheat, BattlEye, Vanguard, XIGNCODE, nProtect GameGuard,
-  PunkBuster, EQU8) are detected and blocked.
+- **Launch options your way:** **Add launch option automatically** (on by default) adds
+  `WINEDLLOVERRIDES=amdxc64=n,b` when you turn a game on. Turn it off to manage launch options
+  yourself; the plugin then never touches them, and **Copy launch options** /
+  **Copy launch options + watermark** copy the text to paste.
+- **AMD's watermark on demand:** **Show AMD's FSR4 watermark** also adds `FSR_WATERMARK=1`, which
+  makes AMD's library draw the FSR 4 model it runs; switching it changes the games already set
+  up at once.
+- **Updates in the plugin:** **About → Check for updates** compares the installed version with the
+  latest GitHub release and downloads its ZIP to the Downloads folder after checking its SHA-256
+  and contents; install it with Decky's **Install Plugin from ZIP**.
+- **Anti-cheat warning:** games with anti-cheat files (Easy Anti-Cheat, BattlEye, Vanguard,
+  XIGNCODE, nProtect GameGuard, PunkBuster, EQU8) are marked with a red warning. **Turn on FSR4
+  in all games** skips them; you can still turn one on by hand, at your own risk.

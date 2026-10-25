@@ -40,6 +40,7 @@ const CONTENTS = [
   "dist",
   "bin/amdxc64.dll",
   "shim/src",
+  "shim/test",  // shim/build.sh builds its self-test too
   "shim/build.sh",
   "shim/COPYING.LIB",
 ];

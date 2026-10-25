@@ -2,11 +2,11 @@
 # A/B/C session scenarios for Spider-Man Remastered with the plugin enabled.
 G="$HOME/.local/share/Steam/steamapps/common/Marvel's Spider-Man Remastered"
 PLUGIN="WINEDLLOVERRIDES=amdxc64=n,b ~/.dlo/run %command%"
-cdp() { python3 -I ~/lg2c-tools/cdp.py eval "$1"; }
+cdp() { python3 -I ~/fsr4test/cdp.py eval "$1"; }
 set_opts() { cdp "SteamClient.Apps.SetAppLaunchOptions(1817070, $(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$1")), 'set'" >/dev/null; }
 toasts() {
   for i in $(seq 1 8); do
-    t=$(CDP_TARGET=notificationtoasts_uid2 python3 -I ~/lg2c-tools/cdp.py eval "document.body.innerText" 2>/dev/null)
+    t=$(CDP_TARGET=notificationtoasts_uid2 python3 -I ~/fsr4test/cdp.py eval "document.body.innerText" 2>/dev/null)
     case "$t" in *"FSR4 not active"*) echo "  toast: $(echo "$t" | tr '\n' ' ' | cut -c1-220)"; return;; esac
     sleep 0.5
   done

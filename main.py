@@ -25,8 +25,16 @@ import fsr4_env  # noqa: E402
 import fsr4_games  # noqa: E402
 import fsr4_gpu  # noqa: E402
 import fsr4_install  # noqa: E402
+import fsr4_updates  # noqa: E402
 
 SHIM_PATH = os.path.join(PLUGIN_DIR, "bin", fsr4_install.SHIM)
+try:
+    with open(os.path.join(PLUGIN_DIR, "plugin.json"), encoding="utf-8") as _f:
+        VERSION = json.load(_f)["version"]
+except (OSError, ValueError, KeyError):
+    VERSION = "0.0.0"
+# auto_launch_options: turning a game on also adds the launch option; watermark: AMD's FSR 4 watermark with it.
+DEFAULT_SETTINGS = {"auto_launch_options": True, "watermark": False}
 # Decky imports the frontend while _main is still running (it hashes the 85 MB DLL); calls wait for it.
 _ready = asyncio.Event()
 
@@ -46,6 +54,16 @@ def gpu_unsupported(gpu):
             f"revision {gpu['rev']}), so games would stay on FSR 3.")
 
 
+def _load_settings(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        saved = {}
+    return {k: saved[k] if isinstance(saved, dict) and isinstance(saved.get(k), bool) else v
+            for k, v in DEFAULT_SETTINGS.items()}
+
+
 def _steam_root():
     home = getattr(decky, "DECKY_USER_HOME", os.path.expanduser("~"))
     return os.path.join(home, ".local", "share", "Steam")
@@ -56,6 +74,8 @@ class Plugin:
         os.makedirs(_data_dir(), exist_ok=True)
         os.makedirs(decky.DECKY_PLUGIN_SETTINGS_DIR, exist_ok=True)
         self.manifest = fsr4_install.Manifest(os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "manifest.json"))
+        self.settings_path = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "settings.json")
+        self.settings = _load_settings(self.settings_path)
         self.games = []
         self.download = {"state": "idle", "done": 0, "total": fsr4_dll.RECIPE["dll_size"], "error": ""}
         self.dll_ok = await asyncio.to_thread(fsr4_dll.is_valid, _ffx_path())
@@ -81,24 +101,54 @@ class Plugin:
             changed = fsr4_env.changes(entry.get("verified"))
             if changed:
                 verdict, reason = "changed", f"Updated since FSR4 was last confirmed: {', '.join(changed)}. Play once to re-check."
-        return {**g, "enabled": entry is not None, "verdict": verdict, "reason": reason}
+        return {**g, "enabled": entry is not None, "verdict": verdict, "reason": reason,
+                "managed_options": bool(entry and entry.get("launch_applied"))}
 
     async def get_state(self) -> dict:
         await _ready.wait()
+        entries = dict(self.manifest.entries)  # enable/disable change it from worker threads
         enabled_missing = [{"appid": a, "name": f"App {a}", "target_dir": e["target_dir"], "anticheat": False}
-                           for a, e in self.manifest.entries.items() if a not in {g["appid"] for g in self.games}]
+                           for a, e in entries.items() if a not in {g["appid"] for g in self.games}]
         return {
+            "version": VERSION,
             "dll_ready": self.dll_ok,
             "shim_ready": os.path.isfile(SHIM_PATH),
             "gpu": self.gpu,
             "recipe": {k: fsr4_dll.RECIPE[k] for k in ("driver", "fsr", "dll_size")},
             "eula_url": fsr4_dll.EULA_URL,
             "download": self.download,
+            "settings": self.settings,
+            "copy_options": {"plain": f"{fsr4_install.launch_prefix(False)} %command%",
+                             "watermark": f"{fsr4_install.launch_prefix(True)} %command%"},
             "scanned": self.scanned,
             "games": [self._game_view(g) for g in self.games + enabled_missing],
         }
 
+    async def set_setting(self, key: str, value: bool) -> dict:
+        if key not in DEFAULT_SETTINGS or not isinstance(value, bool):
+            return await self.get_state()
+        self.settings[key] = value
+        tmp = self.settings_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.settings, f)
+        os.replace(tmp, self.settings_path)
+        return await self.get_state()
+
+    async def apply_watermark(self, appid: int, launch_options: str) -> dict:
+        """The watermark setting for one game whose launch options the plugin manages."""
+        async with self.lock:
+            new = fsr4_install.set_watermark(self.manifest, appid, launch_options, self.settings["watermark"])
+        return {"ok": new is not None, "launch_options": new if new is not None else launch_options}
+
+    async def check_for_updates(self) -> dict:
+        return await asyncio.to_thread(fsr4_updates.check, VERSION)
+
+    async def perform_update(self, expected_version: str) -> dict:
+        home = getattr(decky, "DECKY_USER_HOME", os.path.expanduser("~"))
+        return await asyncio.to_thread(fsr4_updates.download, VERSION, expected_version, os.path.join(home, "Downloads"))
+
     async def scan_games(self) -> dict:
+        await _ready.wait()
         self.games = await asyncio.to_thread(fsr4_games.scan, _steam_root())
         self.scanned = True
         return await self.get_state()
@@ -145,6 +195,7 @@ class Plugin:
         return await self.get_state()
 
     async def enable_game(self, appid: int, launch_options: str) -> dict:
+        await _ready.wait()
         async with self.lock:
             game = next((g for g in self.games if g["appid"] == appid), None)
             if not game:
@@ -155,32 +206,39 @@ class Plugin:
                 return {"ok": False, "error": gpu_unsupported(self.gpu)}
             try:
                 options = await asyncio.to_thread(fsr4_install.enable, self.manifest, game, SHIM_PATH, _ffx_path(),
-                                                  launch_options, self.gpu)
+                                                  launch_options, self.gpu, self.settings["auto_launch_options"],
+                                                  self.settings["watermark"])
             except fsr4_install.InstallError as e:
                 return {"ok": False, "error": str(e)}
             decky.logger.info(f"enabled FSR4 for {appid} in {game['target_dir']}")
             return {"ok": True, "launch_options": options}
 
     async def disable_game(self, appid: int, launch_options: str) -> dict:
+        await _ready.wait()
         async with self.lock:
             result = await asyncio.to_thread(fsr4_install.disable, self.manifest, appid, launch_options)
             decky.logger.info(f"disabled FSR4 for {appid}, kept={result['kept']}")
             return {"ok": True, **result}
 
     async def session_started(self, appid: int) -> dict:
+        await _ready.wait()
         if appid in self.manifest.entries:
             self.sessions[appid] = time.time()
         return {"managed": appid in self.manifest.entries}
 
     async def session_ended(self, appid: int, launch_options: str = "") -> dict:
         """Called by the frontend when a game exits; tells it whether to warn the user."""
-        if appid not in self.manifest.entries:
+        await _ready.wait()
+        entry = self.manifest.entries.get(appid)
+        if not entry:
             return {"managed": False}
         status = fsr4_install.read_status(self.manifest, appid)
-        verdict, reason = fsr4_install.session_verdict(status, self.sessions.pop(appid, None), launch_options)
+        verdict, reason = fsr4_install.session_verdict(status, self.sessions.pop(appid, None), launch_options,
+                                                       bool(entry.get("launch_applied")))
         if verdict == "ok":
-            self.manifest.entries[appid]["verified"] = fsr4_env.fingerprint(status)
-            self.manifest.save()
+            async with self.lock:
+                entry["verified"] = fsr4_env.fingerprint(status)
+                await asyncio.to_thread(self.manifest.save)
         if verdict == "failed":
             decky.logger.warning(f"FSR4 not active for {appid}: {reason} status={status}")
         return {"managed": True, "verdict": verdict, "reason": reason}

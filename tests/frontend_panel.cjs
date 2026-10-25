@@ -6,7 +6,7 @@ const root = path.resolve(__dirname, '..'), ts = require(path.join(root, 'node_m
 const settle = async () => { for (let i = 0; i < 24; i++) await Promise.resolve(); };
 
 function harness() {
-  const slots = [], effects = new Map(), pending = [], calls = [], toasts = [], callbacks = {}, applied = [];
+  const slots = [], effects = new Map(), pending = [], calls = [], toasts = [], callbacks = {}, applied = [], copied = [];
   let cursor = 0;
   const same = (a, b) => a && b && a.length === b.length && a.every((v, i) => v === b[i]);
   const hooks = {
@@ -17,7 +17,9 @@ function harness() {
       old?.cleanup?.(); effects.set(i, { deps, cleanup: fn() });
     }); },
   };
-  const jsx = { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }), Fragment: 'Fragment' };
+  // Function components (Updates) render in place, so their hooks run in a stable order within Content's render.
+  const el = (type, props) => (typeof type === 'function' ? type(props) : { type, props });
+  const jsx = { jsx: el, jsxs: el, Fragment: 'Fragment' };
   const callable = name => (...args) => new Promise((resolve, reject) => calls.push({ name, args, resolve, reject, settled: false }));
   // Steam store categories per app; 36/38 are Online PvP / Online Co-op. Apps not listed have no data.
   const categories = { 1817070: [2, 22], 2: [2, 28], 4: [2, 22], 5: [2, 1, 36, 38] };
@@ -35,6 +37,7 @@ function harness() {
   const mod = { exports: {} };
   vm.runInNewContext(output, {
     module: mod, exports: mod.exports, console, SteamClient, appStore, setTimeout, clearTimeout, setInterval, clearInterval,
+    navigator: { clipboard: { writeText: async t => { copied.push(t); } } },
     require(name) {
       if (name === 'react') return hooks;
       if (name === 'react/jsx-runtime') return jsx;
@@ -46,7 +49,7 @@ function harness() {
   const plugin = mod.exports;
   const render = () => { cursor = 0; const tree = plugin.Content({}); pending.splice(0).forEach(fn => fn()); return tree; };
   return {
-    plugin, render, calls, toasts, callbacks, applied,
+    plugin, render, calls, toasts, callbacks, applied, copied,
     remount() { for (const e of effects.values()) e.cleanup?.(); effects.clear(); slots.length = 0; pending.length = 0; return render(); },
     respond(name, value) {
       const call = calls.find(c => c.name === name && !c.settled); assert.ok(call, `pending ${name}`);
@@ -62,15 +65,20 @@ function all(node, out = []) {
   return out;
 }
 const byType = (tree, type) => all(tree).filter(n => n.type === type);
-const text = node => all(node).flatMap(n => [n.props?.label, n.props?.description, typeof n.props?.children === 'string' ? n.props.children : null]).filter(Boolean).join(' | ');
+const strings = node => all(node).flatMap(n => [].concat(n.props?.children ?? []).filter(c => typeof c === 'string'));
+const desc = props => typeof props.description === 'object' && props.description ? strings(props.description).join(' ') : props.description ?? '';
+const text = node => all(node).flatMap(n => [n.props?.label, n.props?.description ? desc(n.props) : null, typeof n.props?.children === 'string' ? n.props.children : null]).filter(Boolean).join(' | ');
 const button = (tree, label) => byType(tree, 'ButtonItem').find(b => [].concat(b.props.children).includes(label));
 
 const game = { appid: 1817070, name: 'Spider-Man', target_dir: '/g', anticheat: false, enabled: false, verdict: 'unknown', reason: '' };
 const gpu890 = { device: 0x150e, family: 150, rev: 20, arch: 'RDNA 3.5', model: 'INT8_LITE', model_name: 'INT8 Lite', verified: true };
 const state = (over = {}) => ({
-  dll_ready: true, shim_ready: true, gpu: gpu890,
+  version: '1.0.0', dll_ready: true, shim_ready: true, gpu: gpu890,
   recipe: { driver: 'Adrenalin 26.10.1', fsr: '4.1.2', dll_size: 1 }, eula_url: 'https://x',
-  download: { state: 'idle', done: 0, total: 1, error: '' }, scanned: true, games: [game], ...over,
+  download: { state: 'idle', done: 0, total: 1, error: '' }, scanned: true, games: [game],
+  settings: { auto_launch_options: true, watermark: false },
+  copy_options: { plain: 'WINEDLLOVERRIDES=amdxc64=n,b %command%', watermark: 'WINEDLLOVERRIDES=amdxc64=n,b FSR_WATERMARK=1 %command%' },
+  ...over,
 });
 
 (async () => {
@@ -128,9 +136,12 @@ const state = (over = {}) => ({
   await settle();
   tree = h.render();
   const forza = byType(tree, 'ToggleField').find(t => t.props.label === 'Forza');
-  assert.match(forza.props.description, /Online multiplayer: skipped by Turn on all/);
+  assert.match(desc(forza.props), /Online multiplayer: skipped by Turn on all/);
+  const ac = byType(tree, 'ToggleField').find(t => t.props.label === 'Anti-cheat');
+  assert.ok(!ac.props.disabled, 'an anti-cheat game can be turned on by hand');
+  assert.ok(all(ac.props.description).some(n => n.props?.style?.color && strings(n).join('').includes('Anti-cheat detected')), 'red warning under the switch');
   assert.ok(!forza.props.disabled, 'an online game can still be turned on by hand');
-  assert.equal(byType(tree, 'ToggleField').find(t => t.props.label === 'No data').props.description, undefined);
+  assert.equal(desc(byType(tree, 'ToggleField').find(t => t.props.label === 'No data').props), '');
   assert.ok(button(tree, 'Turn off FSR4 and restore all games'), 'restore-all is offered when a game is on');
   button(tree, 'Turn on FSR4 in all games').props.onClick();
   await settle();
@@ -158,6 +169,59 @@ const state = (over = {}) => ({
   h.respond('get_state', state());
   await settle();
 
+  // Launch options section: automatic launch option (default on), the watermark switch tied to it, copy buttons.
+  h.remount();
+  h.respond('get_state', state({ games: [{ ...game, enabled: true, managed_options: true }, { ...game, appid: 2, name: 'E33', enabled: true }] }));
+  await settle();
+  tree = h.render();
+  const sw = label => byType(tree, 'ToggleField').find(t => t.props.label === label).props;
+  assert.equal(sw('Add launch option automatically').checked, true);
+  assert.equal(sw("Show AMD's FSR4 watermark").disabled, false);
+  sw("Show AMD's FSR4 watermark").onChange(true);
+  await settle();
+  assert.deepEqual(h.respond('set_setting', state({ settings: { auto_launch_options: true, watermark: true },
+    games: [{ ...game, enabled: true, managed_options: true }, { ...game, appid: 2, name: 'E33', enabled: true }] })).args, ['watermark', true]);
+  await settle();
+  h.applied.length = 0;
+  const wm = h.respond('apply_watermark', { ok: true, launch_options: 'WINEDLLOVERRIDES=amdxc64=n,b FSR_WATERMARK=1 ~/.dlo/run %command%' });
+  assert.deepEqual(wm.args, [1817070, '~/.dlo/run %command%']);
+  await settle();
+  assert.ok(!h.pending('apply_watermark'), 'only games whose launch options the plugin manages are changed');
+  assert.deepEqual(h.applied, [[1817070, 'WINEDLLOVERRIDES=amdxc64=n,b FSR_WATERMARK=1 ~/.dlo/run %command%']]);
+  h.respond('get_state', state({ settings: { auto_launch_options: false, watermark: true } }));
+  await settle();
+  tree = h.render();
+  assert.equal(sw("Show AMD's FSR4 watermark").disabled, true, 'watermark is greyed out without the automatic launch option');
+  assert.equal(sw("Show AMD's FSR4 watermark").checked, false);
+  button(tree, 'Copy launch options').props.onClick();
+  await settle();
+  button(tree, 'Copy launch options + watermark').props.onClick();
+  await settle();
+  assert.deepEqual(h.copied, ['WINEDLLOVERRIDES=amdxc64=n,b %command%', 'WINEDLLOVERRIDES=amdxc64=n,b FSR_WATERMARK=1 %command%']);
+  assert.match(h.toasts.at(-1).body, /^Copied: /);
+  h.remount();
+  h.respond('get_state', state());
+  await settle();
+
+  // About and Updates at the bottom: check, then download the verified ZIP and say how to install it.
+  tree = h.render();
+  assert.match(text(tree), /FSR4 Injector · v1\.0\.0/);
+  button(tree, 'Check for updates').props.onClick();
+  await settle();
+  assert.ok(button(h.render(), 'Checking…').props.disabled);
+  h.respond('check_for_updates', { current_version: '1.0.0', latest_version: '1.1.0', update_available: true, asset_name: 'FSR4Injector-1.1.0.zip' });
+  await settle();
+  button(h.render(), 'Download v1.1.0').props.onClick();
+  await settle();
+  assert.deepEqual(h.respond('perform_update', { path: '/home/deck/Downloads/FSR4Injector-1.1.0.zip', version: '1.1.0' }).args, ['1.1.0']);
+  await settle();
+  assert.match(text(h.render()), /Update downloaded/);
+  button(h.render(), 'Check for updates').props.onClick();
+  await settle();
+  h.respond('check_for_updates', { current_version: '1.0.0', update_available: false, error: "GitHub's request limit was reached. Try again later." });
+  await settle();
+  assert.ok(all(h.render()).some(n => strings(n).join('').includes('request limit')), 'update errors are shown');
+
   // GPU line: verified, beta, and a GPU AMD has no model for (switches locked, nothing to turn on).
   tree = h.render();
   assert.match(text(tree), /RDNA 3\.5 GPU \| PCI 1002:150e\. AMD's FSR 4\.1\.2 picks its INT8 Lite model here\./);
@@ -171,7 +235,7 @@ const state = (over = {}) => ({
   await settle();
   tree = h.render();
   assert.match(text(tree), /GPU not supported \| AMD's FSR 4 has no model for this GPU \(RDNA 3 APU, PCI 1002:15bf\)/);
-  assert.ok(byType(tree, 'ToggleField').every(t => t.props.disabled), 'nothing can be turned on without a model');
+  assert.ok(byType(tree, 'ToggleField').filter(t => t.props.label === game.name).every(t => t.props.disabled), 'nothing can be turned on without a model');
   assert.ok(!button(tree, 'Turn on FSR4 in all games'));
   h.remount();
   h.respond('get_state', state());
@@ -192,5 +256,5 @@ const state = (over = {}) => ({
   await settle();
   assert.equal(h.toasts.at(-1).title, 'FSR4 not active');
 
-  console.log('Panel verified: instant reopen, scan feedback, toggle flow and notifications.');
+  console.log('Panel verified: instant reopen, scan feedback, toggle flow, launch option settings and notifications.');
 })().catch(e => { console.error(e); process.exit(1); });

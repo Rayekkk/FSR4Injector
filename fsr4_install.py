@@ -26,6 +26,12 @@ STATUS = "fsr4injector.status.json"
 MODE_NATIVE = "native"  # the game's own FidelityFX path (FSR 3.1+)
 # Required: without it Wine loads its builtin amdxc64 from system32 and ignores ours (checked on Proton 11).
 TOKEN = "WINEDLLOVERRIDES=amdxc64=n,b"
+WATERMARK = "FSR_WATERMARK=1"  # the shim turns it into AMD's own on-screen FSR 4 watermark
+
+
+def launch_prefix(watermark=False):
+    """What goes in front of %command%; also what the panel's copy buttons copy."""
+    return f"{TOKEN} {WATERMARK}" if watermark else TOKEN
 
 
 class InstallError(Exception):
@@ -50,50 +56,65 @@ class Manifest:
         os.replace(tmp, self.path)
 
 
-def with_token(options):
-    """Launch options with our token in front; %command% added when the options had none."""
-    options = (options or "").strip()
-    if TOKEN in options.split():
-        return options
+def with_token(options, watermark=False):
+    """Launch options with our token (and the watermark) in front; %command% added when the options had none."""
+    words = [w for w in (options or "").split() if w != TOKEN and not (watermark and w == WATERMARK)]
+    options = " ".join(words)
     if "WINEDLLOVERRIDES=" in options:
-        raise InstallError("this game already sets WINEDLLOVERRIDES in its launch options; merge it by hand")
+        raise InstallError("this game already sets WINEDLLOVERRIDES in its launch options: turn off \"Add launch option "
+                           "automatically\" and add amdxc64=n,b to that override yourself")
     if "%command%" not in options:
         options = f"%command% {options}".strip()
-    return f"{TOKEN} {options}"
+    return f"{launch_prefix(watermark)} {options}"
 
 
 def without_token(current, original, applied):
-    """Undo with_token: the original when untouched since, else just our token removed."""
+    """Undo with_token: the original when untouched since, else just our words removed (a watermark the user
+    already had stays)."""
     current = (current or "").strip()
     if current == applied:
         return original
-    words = [w for w in current.split() if w != TOKEN]
+    users_watermark = WATERMARK in (original or "").split()
+    words = [w for w in current.split() if w != TOKEN and (w != WATERMARK or users_watermark)]
     if words == ["%command%"] and "%command%" not in original:
         return original
     return " ".join(words)
 
 
-def _copy(src, dst):
+def _replace_via_tmp(dst, fill):
+    """Write through a temp file, so a failed copy (a full SD card) never leaves half a DLL or the temp file."""
     tmp = dst + ".fsr4i-tmp"
-    shutil.copyfile(src, tmp)
-    os.replace(tmp, dst)
+    try:
+        fill(tmp)
+        os.replace(tmp, dst)
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _copy(src, dst):
+    _replace_via_tmp(dst, lambda tmp: shutil.copyfile(src, tmp))
 
 
 def _write(dst, data):
-    tmp = dst + ".fsr4i-tmp"
-    with open(tmp, "wb") as f:
-        f.write(data)
-    os.replace(tmp, dst)
+    def fill(tmp):
+        with open(tmp, "wb") as f:
+            f.write(data)
+    _replace_via_tmp(dst, fill)
 
 
 def gpu_file_content(gpu):
     return f"{gpu['device']} {gpu['family']} {gpu['rev']}\n".encode()
 
 
-def enable(manifest, game, shim_path, ffx_path, launch_options, gpu=None):
+def enable(manifest, game, shim_path, ffx_path, launch_options, gpu=None, launch=True, watermark=False):
     """Install into game["target_dir"]; returns the launch options to apply.
 
     gpu: fsr4_gpu.detect() result; written next to the shim so it passes the real family/revision to AMD's DLL.
+    launch: False leaves the launch options to the user (returned unchanged, and never touched on disable).
     """
     appid, target = game["appid"], game["target_dir"]
     sources = {SHIM: shim_path, FFX: ffx_path}
@@ -111,7 +132,7 @@ def enable(manifest, game, shim_path, ffx_path, launch_options, gpu=None):
     original = " ".join(w for w in (launch_options or "").split() if w != TOKEN)
     entry = manifest.entries.get(appid) or {"target_dir": target, "files": {}, "launch_original": original}
     entry.setdefault("mode", MODE_NATIVE)
-    new_options = with_token(launch_options) if TOKEN else (launch_options or "").strip()
+    new_options = with_token(launch_options, watermark) if launch else None
     try:
         for name in want:
             dst = os.path.join(target, name)
@@ -125,9 +146,29 @@ def enable(manifest, game, shim_path, ffx_path, launch_options, gpu=None):
     except OSError as e:
         raise InstallError(f"could not write to the game folder: {e}") from e
 
-    entry.update(launch_applied=new_options, enabled_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    if launch:
+        entry["launch_applied"] = new_options
+    entry["enabled_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     manifest.save()
-    return new_options
+    return new_options if launch else (launch_options or "").strip()
+
+
+def set_watermark(manifest, appid, current, on):
+    """Add or take out FSR_WATERMARK=1 in a game whose launch options we manage; None when we do not."""
+    entry = manifest.entries.get(appid)
+    if not entry or not entry.get("launch_applied"):
+        return None
+    if on:
+        try:
+            new = with_token(current, True)
+        except InstallError:
+            return None
+    else:
+        users_watermark = WATERMARK in entry.get("launch_original", "").split()
+        new = " ".join(w for w in (current or "").split() if w != WATERMARK or users_watermark)
+    entry["launch_applied"] = new
+    manifest.save()
+    return new
 
 
 def refresh_shim(manifest, shim_path):
@@ -178,7 +219,10 @@ def disable(manifest, appid, launch_options):
             os.remove(os.path.join(entry["target_dir"], name))
         except OSError:
             pass
-    restored = without_token(launch_options, entry.get("launch_original", ""), entry.get("launch_applied", ""))
+    if entry.get("launch_applied"):
+        restored = without_token(launch_options, entry.get("launch_original", ""), entry["launch_applied"])
+    else:  # the user manages this game's launch options
+        restored = (launch_options or "").strip()
     del manifest.entries[appid]
     manifest.save()
     return {"launch_options": restored, "kept": kept}
@@ -190,10 +234,12 @@ def read_status(manifest, appid):
     if not entry:
         return None
     try:
-        with open(os.path.join(entry["target_dir"], STATUS), encoding="utf-8") as f:
-            return json.load(f)
+        # errors="replace": the Proton path in it comes from a Windows code page, not always valid UTF-8
+        with open(os.path.join(entry["target_dir"], STATUS), encoding="utf-8", errors="replace") as f:
+            status = json.load(f)
     except (OSError, ValueError):
         return None
+    return status if isinstance(status, dict) else None
 
 
 def _epoch(iso):
@@ -203,26 +249,33 @@ def _epoch(iso):
         return None
 
 
-def session_verdict(status, session_start, launch_options):
-    """verdict() for a session that just ended: a status not written during it means our DLL never loaded."""
+def session_verdict(status, session_start, launch_options, managed=True):
+    """verdict() for a session that just ended: a status not written during it means our DLL never loaded.
+
+    managed: whether the plugin set the launch options (else the user adds the token by hand).
+    """
     started = _epoch((status or {}).get("started"))
     if session_start and (started is None or started < session_start - 5):  # shim clock has 1 s resolution
-        if TOKEN and TOKEN not in (launch_options or "").split():
+        if TOKEN not in (launch_options or "").split():
+            if not managed:
+                return "failed", (f"FSR4 Injector was not loaded: add {TOKEN} in front of %command% in the game's "
+                                  "launch options (Copy launch options in the plugin).")
             return "failed", (f"FSR4 Injector was not loaded: the game's launch options no longer contain {TOKEN} "
                               "(another tool may have changed them). Toggle the game off and on to repair.")
-        return "failed", "FSR4 Injector's DLL was not loaded in this session."
+        return "failed", ("FSR4 Injector's DLL was not loaded in this session (the game did not start DirectX 12, "
+                          "for example it ran in DirectX 11 mode or was closed in its launcher).")
     return verdict(status)
 
 
 def verdict(status):
     """(ok | unused | failed | unknown, human-readable reason) for a session status."""
     if not status:
-        return "unknown", "Not verified yet: start the game and use FSR once."
+        return "unknown", "Start the game and use FSR once."
     if not status.get("ffx_requested"):
-        return "unused", "The game did not use FSR in its last session (pick FSR in its graphics settings)."
+        return "unused", "Pick AMD FSR as the upscaler in the game's graphics settings."
     active = status.get("active")
     if active in ("INT8_LITE", "INT8", "INT8_NAVI2", "FP8"):
-        return "ok", f"FSR {status.get('provider', '').strip(' *') or '4'} active ({active})."
+        return "ok", f"FSR {str(status.get('provider') or '').strip(' *') or '4'} ({active}) ran in the last session."
     if not status.get("dll_loaded"):
         return "failed", "The AMD FSR4 DLL did not load."
     if not status.get("family"):

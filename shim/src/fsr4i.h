@@ -2,7 +2,7 @@
 #pragma once
 #include <windows.h>
 
-#define FSR4I_VERSION "0.1.0"
+#define FSR4I_VERSION "1.0.0"
 
 void fsr4i_init(HMODULE self);
 void fsr4i_exit(void);

@@ -30,6 +30,7 @@ interface Game {
   enabled: boolean;
   verdict: "ok" | "changed" | "unused" | "failed" | "unknown";
   reason: string;
+  managed_options?: boolean; // the plugin set this game's launch options
 }
 
 interface Gpu {
@@ -43,12 +44,15 @@ interface Gpu {
 }
 
 interface State {
+  version: string;
   dll_ready: boolean;
   shim_ready: boolean;
   gpu: Gpu | null;
   recipe: { driver: string; fsr: string; dll_size: number };
   eula_url: string;
   download: { state: "idle" | "running" | "done" | "error"; done: number; total: number; error: string };
+  settings: { auto_launch_options: boolean; watermark: boolean };
+  copy_options: { plain: string; watermark: string };
   scanned: boolean;
   games: Game[];
 }
@@ -64,6 +68,12 @@ const disableGame = callable<[number, string], ToggleResult>("disable_game");
 const sessionStarted = callable<[number], { managed: boolean }>("session_started");
 const sessionEnded = callable<[number, string], { managed: boolean; verdict?: string; reason?: string }>("session_ended");
 const startupNotice = callable<[], { message: string }>("startup_notice");
+const setSetting = callable<[string, boolean], State>("set_setting");
+const applyWatermark = callable<[number, string], { ok: boolean; launch_options: string }>("apply_watermark");
+
+interface UpdateInfo { current_version?: string; latest_version?: string; update_available?: boolean; asset_name?: string; error?: string }
+const checkForUpdates = callable<[], UpdateInfo>("check_for_updates");
+const performUpdate = callable<[string], { path?: string; version?: string; error?: string }>("perform_update");
 
 const notify = (title: string, body: string) => toaster.toast({ title, body, duration: 6000 });
 
@@ -92,6 +102,25 @@ const VERDICT_LABEL: Record<Game["verdict"], string> = {
 };
 
 const MiB = (b: number) => `${(b / 2 ** 20).toFixed(0)} MiB`;
+
+const ANTICHEAT_WARNING = "Anti-cheat detected: adding DLLs to this game can get you kicked or banned in online play. " +
+  "Turning FSR4 on is at your own risk.";
+
+// The Steam client does not always grant the async clipboard API to plugins; fall back to a selected textarea.
+const copyText = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    return ok;
+  }
+};
 
 // The QAM remounts the panel on every open; keep the last state so it renders at once and refreshes underneath.
 let lastState: State | null = null;
@@ -200,8 +229,30 @@ const Content: FC = () => {
     refresh();
   };
 
+  // The new setting applies at once to every game whose launch options the plugin manages.
+  const setWatermark = async (on: boolean) => {
+    setBusy(-1);
+    try {
+      const next = await setSetting("watermark", on);
+      setState(next);
+      for (const g of next.games.filter(g => g.enabled && g.managed_options)) {
+        const current = await readLaunchOptions(g.appid);
+        const res = await applyWatermark(g.appid, current);
+        if (res.ok && res.launch_options !== current) SteamClient.Apps.SetAppLaunchOptions(g.appid, res.launch_options);
+      }
+    } catch (e) {
+      notify("FSR4 Injector", String(e));
+    }
+    setBusy(null);
+    refresh();
+  };
+
+  const copy = async (text: string) =>
+    notify("FSR4 Injector", (await copyText(text)) ? `Copied: ${text}` : "Copying is not available here.");
+
   if (!state) return <PanelSection>{error ? <Field label="Backend unavailable">{error}</Field> : <Spinner />}</PanelSection>;
 
+  const settings = state.settings ?? { auto_launch_options: true, watermark: false };
   const dl = state.download;
   const gpu = state.gpu;
   const canEnable = state.dll_ready && state.shim_ready && !!gpu?.model;
@@ -255,12 +306,14 @@ const Content: FC = () => {
           <PanelSectionRow key={g.appid}>
             <ToggleField
               label={g.name}
-              description={g.anticheat ? "Anti-cheat detected: not supported"
-                : g.enabled ? `${VERDICT_LABEL[g.verdict]}. ${g.reason}`
-                : onlineStatus(g.appid) === "online" ? "Online multiplayer: skipped by Turn on all. Turning it on is at your own risk."
-                : undefined}
+              description={<>
+                {g.enabled ? `${VERDICT_LABEL[g.verdict]}. ${g.reason}`
+                  : !g.anticheat && onlineStatus(g.appid) === "online"
+                    ? "Online multiplayer: skipped by Turn on all. Turning it on is at your own risk." : null}
+                {g.anticheat && <div style={{ color: "#ff5c5c" }}>{ANTICHEAT_WARNING}</div>}
+              </>}
               checked={g.enabled}
-              disabled={busy !== null || (!g.enabled && (g.anticheat || !canEnable))}
+              disabled={busy !== null || (!g.enabled && !canEnable)}
               onChange={on => toggle(g, on)}
             />
           </PanelSectionRow>
@@ -288,7 +341,137 @@ const Content: FC = () => {
           </PanelSectionRow>
         )}
       </PanelSection>
+
+      <PanelSection title="Launch options">
+        <PanelSectionRow>
+          <ToggleField
+            label="Add launch option automatically"
+            description={`Turning FSR4 on for a game adds ${state.copy_options.plain} to its launch options. ` +
+              "Off: add it yourself; the plugin then leaves the game's launch options alone."}
+            checked={settings.auto_launch_options}
+            disabled={busy !== null}
+            onChange={on => setSetting("auto_launch_options", on).then(setState, e => notify("FSR4 Injector", String(e)))}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
+            label="Show AMD's FSR4 watermark"
+            description="Also adds FSR_WATERMARK=1, so AMD's library shows which FSR 4 model runs. Applies to the games set up above at once."
+            checked={settings.auto_launch_options && settings.watermark}
+            disabled={busy !== null || !settings.auto_launch_options}
+            onChange={setWatermark}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={() => copy(state.copy_options.plain)}
+            description={state.copy_options.plain}>
+            Copy launch options
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={() => copy(state.copy_options.watermark)}
+            description={state.copy_options.watermark}>
+            Copy launch options + watermark
+          </ButtonItem>
+        </PanelSectionRow>
+      </PanelSection>
+
+      <PanelSection title="About">
+        <PanelSectionRow>
+          <Field label={`FSR4 Injector · v${state.version}`}
+            description="AMD's official FSR 4 upscaler, with the Lite model made for handhelds, in FSR 3.1 games under Proton." />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <Field label="Author" description="Rayek · BSD-3-Clause open-source plugin; the amdxc64 shim is LGPL-2.1." />
+        </PanelSectionRow>
+      </PanelSection>
+      <Updates version={state.version} />
     </>
+  );
+};
+
+// Survives the QAM remounting the panel, like the panel state.
+let updateView: { info: UpdateInfo | null; checking: boolean; downloading: boolean; path: string | null } =
+  { info: null, checking: false, downloading: false, path: null };
+
+const versionTag = (value: string) => (
+  <span style={{ fontWeight: 700, color: "var(--gpColor-White, #fff)", background: "rgba(102,192,244,.18)", borderRadius: "4px", padding: "1px 6px" }}>
+    v{value}
+  </span>
+);
+
+// Same flow as the Companion plugins: check GitHub, download the verified release ZIP to Downloads, install it by hand.
+const Updates: FC<{ version: string }> = ({ version }) => {
+  const [view, setViewRaw] = useState(updateView);
+  const setView = (next: Partial<typeof updateView>) => { updateView = { ...updateView, ...next }; setViewRaw(updateView); };
+  const { info, checking, downloading, path } = view;
+
+  const check = async () => {
+    if (updateView.checking || updateView.downloading) return;
+    setView({ checking: true, info: null, path: null });
+    try {
+      setView({ info: await checkForUpdates() });
+    } catch (e) {
+      setView({ info: { error: String(e) } });
+    }
+    setView({ checking: false });
+  };
+
+  const download = async () => {
+    const expected = updateView.info?.latest_version;
+    if (!expected || updateView.checking || updateView.downloading) return;
+    setView({ downloading: true });
+    try {
+      const res = await performUpdate(expected);
+      if (res.path && res.version === expected) setView({ path: res.path });
+      else setView({ info: { ...(updateView.info ?? {}), error: res.error ?? "The download did not finish." } });
+    } catch (e) {
+      setView({ info: { ...(updateView.info ?? {}), error: String(e) } });
+    }
+    setView({ downloading: false });
+  };
+
+  return (
+    <PanelSection title="Updates">
+      <PanelSectionRow>
+        <div style={{ fontSize: "12px", color: "var(--gpColor-TextMuted, rgba(255,255,255,.6))", overflowWrap: "anywhere" }}>
+          Installed: {versionTag(info?.current_version ?? version)}
+          {info?.latest_version && !info.error && <>{" · "}Latest: {versionTag(info.latest_version)}</>}
+        </div>
+      </PanelSectionRow>
+      {info?.error && (
+        <PanelSectionRow>
+          <div style={{ padding: "8px", borderRadius: "4px", background: "rgba(248,113,113,.14)", color: "var(--gpColor-Red, #f87171)", overflowWrap: "anywhere" }}>
+            {info.error}
+          </div>
+        </PanelSectionRow>
+      )}
+      {info && !info.error && !info.update_available && !path && (
+        <PanelSectionRow><div style={{ fontSize: "12px", color: "var(--gpColor-Green, #4ade80)" }}>Up to date</div></PanelSectionRow>
+      )}
+      {info?.update_available && info.asset_name && !path && (
+        <PanelSectionRow>
+          <ButtonItem layout="below" disabled={checking || downloading} onClick={download}
+            description="Downloads the release ZIP from GitHub to the Downloads folder and checks it.">
+            {downloading ? "Downloading…" : `Download v${info.latest_version}`}
+          </ButtonItem>
+        </PanelSectionRow>
+      )}
+      {path && (
+        <PanelSectionRow>
+          <Field focusable label="Update downloaded" description={<span>
+            Saved to <span style={{ fontFamily: "monospace", overflowWrap: "anywhere" }}>{path}</span>. To install:
+            Decky → Settings → Developer → Install Plugin from ZIP. Your games stay set up.
+          </span>} />
+        </PanelSectionRow>
+      )}
+      <PanelSectionRow>
+        <ButtonItem layout="below" disabled={checking || downloading} onClick={check}
+          description="Compares the installed version with the latest GitHub release.">
+          {checking ? "Checking…" : "Check for updates"}
+        </ButtonItem>
+      </PanelSectionRow>
+    </PanelSection>
   );
 };
 

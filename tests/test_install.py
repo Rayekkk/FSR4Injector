@@ -43,6 +43,8 @@ class Discovery(unittest.TestCase):
         _library(steam, 5000, "Online", "Online", ["amd_fidelityfx_dx12.dll", "EasyAntiCheat/EasyAntiCheat_x64.dll"])
         _library(steam, 5001, "Korean MMO", "KMMO", ["amd_fidelityfx_dx12.dll", "XIGNCODE/x3.xem"])
         _library(steam, 5002, "Old FPS", "OldFPS", ["amd_fidelityfx_dx12.dll", "pb/pbsvc.exe"])
+        # a manifest whose installdir climbs out of steamapps/common is ignored
+        _library(steam, 6000, "Escape", "../../outside", ["amd_fidelityfx_dx12.dll"])
 
         games = {g["appid"]: g for g in fsr4_games.scan(steam)}
         self.assertEqual(set(games), {1817070, 1903340, 5000, 5001, 5002})
@@ -153,8 +155,61 @@ class InstallRollback(unittest.TestCase):
         with mock.patch.object(I, "_copy", flaky), self.assertRaisesRegex(I.InstallError, "disk full"):
             I.enable(self.m, self.game, self.shim, self.ffx, "")
         self.assertEqual(list(I.Manifest(self.mpath).entries[42]["files"]), ["amdxc64.dll"])
+        # a copy that fails half way leaves no temp file behind
+        with mock.patch.object(I.shutil, "copyfile", side_effect=lambda s, d: (open(d, "wb").write(b"half"),
+                                                                                 (_ for _ in ()).throw(OSError("full")))):
+            with self.assertRaises(OSError):
+                I._copy(self.ffx, os.path.join(self.target, "x.dll"))
+        self.assertNotIn("x.dll.fsr4i-tmp", os.listdir(self.target))
         I.disable(I.Manifest(self.mpath), 42, "")
         self.assertEqual(self.files(), ["game.exe"])
+
+
+class LaunchSettings(unittest.TestCase):
+    """The panel's launch option switches: automatic token (default) or hands-off, and the watermark."""
+
+    def setUp(self):
+        d = tempfile.mkdtemp()
+        self.shim, self.ffx = os.path.join(d, "shim.dll"), os.path.join(d, "ffx.dll")
+        _write(self.shim, b"shim")
+        _write(self.ffx, b"amd")
+        self.target = os.path.join(d, "game")
+        os.makedirs(self.target)
+        self.game = {"appid": 9, "target_dir": self.target}
+        self.m = I.Manifest(os.path.join(d, "manifest.json"))
+
+    def test_watermark_rides_along_and_is_undone(self):
+        opts = I.enable(self.m, self.game, self.shim, self.ffx, "~/.dlo/run %command%", watermark=True)
+        self.assertEqual(opts, f"{I.TOKEN} {I.WATERMARK} ~/.dlo/run %command%")
+        self.assertEqual(I.with_token(opts, True), opts)  # idempotent
+        self.assertEqual(I.disable(self.m, 9, opts + " -novid")["launch_options"], "~/.dlo/run %command% -novid")
+
+    def test_users_own_watermark_survives(self):
+        opts = I.enable(self.m, self.game, self.shim, self.ffx, f"{I.WATERMARK} %command%", watermark=True)
+        self.assertEqual(I.set_watermark(self.m, 9, opts, False), opts)  # theirs, not ours to take out
+        self.assertEqual(I.disable(self.m, 9, opts + " x")["launch_options"], f"{I.WATERMARK} %command% x")
+
+    def test_switching_the_watermark_on_set_up_games(self):
+        opts = I.enable(self.m, self.game, self.shim, self.ffx, "-novid")
+        on = I.set_watermark(self.m, 9, opts, True)
+        self.assertEqual(on, f"{I.TOKEN} {I.WATERMARK} %command% -novid")
+        off = I.set_watermark(self.m, 9, on, False)
+        self.assertEqual(off, f"{I.TOKEN} %command% -novid")
+        self.assertEqual(I.disable(self.m, 9, off)["launch_options"], "-novid")
+
+    def test_hands_off_mode_never_touches_launch_options(self):
+        self.assertEqual(I.enable(self.m, self.game, self.shim, self.ffx, "-novid", launch=False), "-novid")
+        self.assertIn(I.SHIM, os.listdir(self.target))
+        self.assertIsNone(I.set_watermark(self.m, 9, "-novid", True))
+        mine = f"{I.TOKEN} %command% -novid"  # the user added it by hand
+        self.assertEqual(I.disable(self.m, 9, mine), {"launch_options": mine, "kept": []})
+        self.assertEqual(os.listdir(self.target), [])
+
+    def test_missing_token_in_hands_off_mode_says_to_add_it(self):
+        start = 1792873295
+        verdict, reason = I.session_verdict(None, start, "%command%", managed=False)
+        self.assertEqual(verdict, "failed")
+        self.assertIn("add WINEDLLOVERRIDES=amdxc64=n,b", reason)
 
 
 class Verdict(unittest.TestCase):
@@ -249,6 +304,35 @@ class Plugin(unittest.TestCase):
             res = await updated.disable_game(1817070, res["launch_options"])
             self.assertEqual(res["launch_options"], "")
             self.assertEqual(sorted(os.listdir(target)), ["Spider-Man.exe", "amd_fidelityfx_dx12.dll"])
+
+            # settings: validated, persisted, and used by the next enable
+            state = await updated.get_state()
+            self.assertEqual(state["settings"], {"auto_launch_options": True, "watermark": False})
+            self.assertEqual(state["copy_options"]["watermark"], f"{I.TOKEN} {I.WATERMARK} %command%")
+            updated.dll_ok = True  # the fake DLL above has no AMD checksum
+            await updated.set_setting("watermark", "yes")  # not a bool: ignored
+            await updated.set_setting("nonsense", True)
+            self.assertEqual((await updated.set_setting("watermark", True))["settings"]["watermark"], True)
+            res = await updated.enable_game(1817070, "")
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["launch_options"],
+                             f"{I.TOKEN} {I.WATERMARK} %command%")
+            self.assertEqual((await updated.apply_watermark(1817070, f"{I.TOKEN} {I.WATERMARK} %command%"))
+                             ["launch_options"], f"{I.TOKEN} {I.WATERMARK} %command%")
+            await updated.disable_game(1817070, f"{I.TOKEN} {I.WATERMARK} %command%")
+            await updated.set_setting("auto_launch_options", False)
+            again = main.Plugin()
+            await again._main()
+            await again.scan_games()
+            again.dll_ok = True
+            self.assertEqual(again.settings, {"auto_launch_options": False, "watermark": True})
+            res = await again.enable_game(1817070, "-novid")
+            self.assertEqual(res["launch_options"], "-novid")  # left to the user
+            self.assertFalse((await again.get_state())["games"][0]["managed_options"])
+            self.assertFalse((await again.apply_watermark(1817070, "-novid"))["ok"])
+            await again.disable_game(1817070, "-novid")
+            await again.set_setting("auto_launch_options", True)
+            await again.set_setting("watermark", False)
         run(flow())
 
 

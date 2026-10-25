@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/license-BSD--3_+_LGPL--2.1-424A53?style=for-the-badge&labelColor=141417)](#license)
 
 **AMD's official FSR 4.1 upscaler on your RDNA 3.5 handheld, in SteamOS Gaming Mode.**
-Turn it on per game from the Steam overlay: AMD's own FSR 4 library, with the Lite model made for handhelds, no OptiScaler and nothing hooked into the game.
+Turn it on per game from the Quick Access Menu: AMD's own, unmodified FSR 4 library with the Lite model made for handhelds, in games that already use FSR 3.1. No OptiScaler, nothing patched on disk.
 
 [Features](#features) · [Requirements](#requirements) · [Installation](#installation) · [Quick start](#quick-start) · [Troubleshooting](#troubleshooting) · [How it works](#how-it-works) · [AI disclaimer](#ai-disclaimer)
 
@@ -29,9 +29,11 @@ that one missing answer and manages everything around it.
 | **One-tap setup** | Fetches AMD's FSR 4 library straight from AMD's servers (about 43 MB) and checks it |
 | **Per-game switch** | Lists your installed games that use FSR 3.1 or newer and turns FSR 4 on or off for each |
 | **All at once** | **Turn on FSR4 in all games** sets up every compatible offline game; **Turn off FSR4 and restore all games** puts every one back |
+| **Launch options your way** | Adds the one launch option it needs, or leaves launch options to you with ready-to-paste text; AMD's watermark on demand |
 | **Never fails silently** | After every session it checks that FSR 4 really ran, and tells you when it did not and why |
 | **Update aware** | Marks a game for a re-check after a SteamOS or Proton update and says what changed |
 | **Clean rollback** | Turning a game off removes exactly what was added and puts its launch options back |
+| **Updates** | **About → Check for updates** downloads a newer release from GitHub to your Downloads folder and checks it |
 
 Measured on a Legion Go 2 (Spider-Man Remastered menu, 1920×1200, Quality): FSR 3 13.7 ms,
 **FSR 4 Lite 14.1 ms, about 3% slower, with a clearly sharper image**, FSR 4's desktop INT8
@@ -44,7 +46,7 @@ model 15.1 ms. One run per variant.
 | GPU | An AMD GPU that AMD's FSR 4.1.2 has a model for. **Verified:** Radeon 880M/890M (Strix Point: Ryzen Z2 Extreme, Ryzen AI 9 300) with the Lite model. **Beta, not tested yet:** Steam Deck and Ryzen Z2 A (Van Gogh, Lite), RX 6000 (RDNA2 model), RX 7000 and Strix Halo (INT8), RX 9000 (FP8) |
 | System | SteamOS in Gaming Mode with [Decky Loader](https://decky.xyz); Proton 11 or Proton Experimental |
 | Games | DirectX 12 games that ship `amd_fidelityfx_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll` or `amd_fidelityfx_loader_dx12.dll` (FSR 3.1 or newer) |
-| Network | Once, to download AMD's library from `drivers.amd.com` |
+| Network | Once, to download AMD's library from `drivers.amd.com`; and when you check for plugin updates (GitHub) |
 
 FSR 2, FSR 3.0 and Vulkan games are not supported. The panel shows which model AMD's library
 will pick on your GPU; GPUs AMD has no model for, such as the Radeon 780M (Z1 Extreme), are
@@ -53,30 +55,44 @@ refused.
 Adding DLLs to a game's folder can get you kicked or banned in online games, so:
 
 - games with anti-cheat files (Easy Anti-Cheat, BattlEye, Vanguard, XIGNCODE, nProtect
-  GameGuard, PunkBuster, EQU8) are blocked;
-- games Steam lists as online (MMO, Cross-Platform Multiplayer, Online PvP or Online Co-op),
-  and games Steam gives no categories for, are skipped by **Turn on FSR4 in all games** and
-  marked in the list. You can still turn them on one by one, at your own risk.
+  GameGuard, PunkBuster, EQU8) get a red warning under their switch;
+- **Turn on FSR4 in all games** skips those games, games Steam lists as online (MMO,
+  Cross-Platform Multiplayer, Online PvP or Online Co-op) and games Steam gives no categories
+  for. Online games are marked in the list.
+
+You can still turn any of them on one by one, at your own risk.
+
+Each game gets its own copy of AMD's library, about 82 MB.
 
 ## Installation
 
 1. Install [Decky Loader](https://decky.xyz) if you do not already have it.
 2. Download `FSR4Injector-<version>.zip` from [Releases](https://github.com/Rayekkk/FSR4Injector/releases).
-3. In Gaming Mode, open **Quick Access Menu → Decky → Settings → Developer**.
+3. In Gaming Mode, open **Quick Access Menu → Decky → Settings**, turn on **Developer mode** under
+   **General**, then open **Developer**.
 4. Choose **Install Plugin from ZIP**, select the archive, then open **FSR4 Injector** in Decky.
 
 ### Updating
 
-Install the new ZIP the same way. Your games stay set up, and the plugin brings their copy of
-its DLL up to date at the next start.
+Open **About → Check for updates** at the bottom of the plugin. When a newer release is out,
+**Download** saves its ZIP to your Downloads folder after checking it against the SHA-256 GitHub
+publishes; install it the same way as above. Your games stay set up, and the plugin brings their
+copy of its DLL up to date at the next start.
+
+<a href="docs/screenshots/about.png"><img src="docs/screenshots/about.png" alt="About and Updates at the bottom of the plugin" width="360"></a>
 
 ### Uninstalling
 
 Press **Turn off FSR4 and restore all games** first. Decky handles an update as uninstall plus install, so
 the plugin never removes anything from games on its own. If you skip this, FSR 4 keeps working
-in those games, just without the plugin's checks.
+in those games, just without the plugin's checks. To clean up by hand, delete `amdxc64.dll`,
+`amdxcffx64.dll`, `fsr4injector.gpu` and `fsr4injector.status.json` from the game's folder (next to
+its `amd_fidelityfx_*.dll`) and remove `WINEDLLOVERRIDES=amdxc64=n,b` (and `FSR_WATERMARK=1`) from its
+launch options.
 
 ## Quick start
+
+<a href="docs/screenshots/overview.png"><img src="docs/screenshots/overview.png" alt="FSR4 Injector in the Quick Access Menu: GPU, AMD library and games" width="360"></a>
 
 1. Open **FSR4 Injector** and press **Accept and download**. This fetches the FSR 4 library from
    AMD's official Adrenalin 26.10.1 package and accepts the
@@ -85,15 +101,26 @@ in those games, just without the plugin's checks.
 3. Start the game and choose **AMD FSR** as its upscaler.
 4. Quit the game. The panel shows **✓ FSR4 active**, or a notification tells you what went wrong.
 
+<a href="docs/screenshots/games.png"><img src="docs/screenshots/games.png" alt="Per-game switches with the result of each game's last session" width="360"></a>
+
 | Status | Meaning |
 |---|---|
-| ✓ FSR4 active | FSR 4 ran in the last session |
+| ✓ FSR4 active | FSR 4 ran in the last session; the model it used is shown |
 | ↻ Re-check needed | SteamOS or Proton changed since FSR 4 last ran; play once to confirm |
 | FSR not used last session | The game did not ask for FSR; pick AMD FSR in its graphics settings |
 | ⚠ FSR4 not active | It should have run but did not; the reason is shown underneath |
 | Not verified yet | The game has not been played since you turned it on |
 
-To see AMD's own on-screen watermark, add `FSR_WATERMARK=1` in front of the game's launch options.
+### Launch options
+
+**Add launch option automatically** (on by default) puts `WINEDLLOVERRIDES=amdxc64=n,b` in front of
+a game's launch options when you turn it on. Turn it off if you manage launch options yourself:
+the plugin then never touches them, and **Copy launch options** copies the text to paste.
+**Show AMD's FSR4 watermark** also adds `FSR_WATERMARK=1`, so AMD's library draws which FSR 4
+model runs; it changes the games already set up at once. **Copy launch options + watermark**
+copies both.
+
+<a href="docs/screenshots/launch-options.png"><img src="docs/screenshots/launch-options.png" alt="Launch option switches and copy buttons" width="360"></a>
 
 ## Troubleshooting
 
@@ -101,9 +128,10 @@ To see AMD's own on-screen watermark, add `FSR_WATERMARK=1` in front of the game
 |---|---|
 | "The AMD DLL refused FSR4 and fell back to FSR3" | Usually a SteamOS or Proton update. Check for a plugin update |
 | "…launch options no longer contain WINEDLLOVERRIDES…" | Another tool rewrote them. Turn the game off and on again |
-| "GPU … is not supported by this plugin version" | Only checked RDNA 3.5 GPUs are enabled |
+| "GPU … is not supported by this plugin version" | The game's copy of the GPU details is missing or from another device. Turn the game off and on again |
+| "FSR4 Injector's DLL was not loaded in this session" | The game did not start DirectX 12 (DirectX 11 mode, or closed in its launcher), or its launch option is missing |
 | "This AMD DLL version is not recognised" | The plugin needs an update for a newer AMD library |
-| "…already sets WINEDLLOVERRIDES…" | Merge `amdxc64=n,b` into the game's existing override by hand |
+| "…already sets WINEDLLOVERRIDES…" | Turn off **Add launch option automatically** and add `amdxc64=n,b` to the game's existing override yourself, e.g. `WINEDLLOVERRIDES="dxgi=n,b;amdxc64=n,b" %command%` |
 | "…already exists in the game folder and is not ours" | Another mod uses the same file name; FSR4 Injector leaves it alone |
 | Download failed | Read the error and retry; the plugin keeps nothing from a failed download |
 
@@ -141,7 +169,8 @@ accepted, the Proton it ran under and when. After each session the plugin compar
 session's start time and the game's launch options, and remembers the SteamOS and Proton
 versions FSR 4 last worked with.
 
-Files are only ever added. A file of the same name that is not ours stops the install; every
+Each game folder gets its own copy of AMD's library (about 82 MB), so turning a game off never
+affects another. Files are only ever added. A file of the same name that is not ours stops the install; every
 file written is recorded with its SHA-256 and removed only while it still matches. Proton
 itself is not modified and nothing is installed system-wide.
 
