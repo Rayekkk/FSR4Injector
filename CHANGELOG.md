@@ -2,6 +2,15 @@
 
 All notable changes to FSR4 Injector, newest first.
 
+## [1.0.1] - 2026-10-25
+
+### Fixed
+
+- Updates are saved to your Downloads folder as the desktop names it in your language (for
+  example `~/Pobrane`), instead of always `~/Downloads`.
+- The plugin's status file is written as UTF-8 whatever the system language, so a Proton folder
+  with non-English letters no longer confuses the check after a Proton update.
+
 ## [1.0.0] - 2026-10-25
 
 Initial release.
