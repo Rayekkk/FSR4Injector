@@ -169,6 +169,30 @@ const state = (over = {}) => ({
   h.respond('get_state', state());
   await settle();
 
+  // Repair: re-checks AMD's library, then sets every enabled game up again; a damaged library asks for a download.
+  h.remount();
+  h.respond('get_state', state({ games: [{ ...game, enabled: true }, { ...game, appid: 2, name: 'E33' }] }));
+  await settle();
+  button(h.render(), 'Repair FSR4 in all games').props.onClick();
+  await settle();
+  h.respond('verify_library', state({ games: [{ ...game, enabled: true }, { ...game, appid: 2, name: 'E33' }] }));
+  await settle();
+  assert.ok(button(h.render(), 'Repairing… 1/1'), 'repair shows its own progress');
+  assert.equal(h.respond('enable_game', { ok: true, launch_options: 'T %command%' }).args[0], 1817070);
+  await settle();
+  assert.ok(!h.pending('enable_game'), 'only games that have FSR4 on are repaired');
+  assert.equal(h.toasts.at(-1).body, 'Repaired 1 of 1 game.');
+  h.respond('get_state', state({ games: [{ ...game, enabled: true }] }));
+  await settle();
+  button(h.render(), 'Repair FSR4 in all games').props.onClick();
+  await settle();
+  h.respond('verify_library', state({ dll_ready: false, games: [{ ...game, enabled: true }] }));
+  await settle();
+  assert.ok(!h.pending('enable_game'), 'nothing is copied from a damaged library');
+  assert.match(h.toasts.at(-1).body, /missing or damaged/);
+  h.respond('get_state', state());
+  await settle();
+
   // Launch options section: automatic launch option (default on), the watermark switch tied to it, copy buttons.
   h.remount();
   h.respond('get_state', state({ games: [{ ...game, enabled: true, managed_options: true }, { ...game, appid: 2, name: 'E33', enabled: true }] }));

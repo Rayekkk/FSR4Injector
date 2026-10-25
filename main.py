@@ -190,6 +190,12 @@ class Plugin:
             self.download.update(state="error", error=str(e))
         return await self.get_state()
 
+    async def verify_library(self) -> dict:
+        """Re-check AMD's library on disk (the Repair button); a damaged or missing one has to be downloaded again."""
+        await _ready.wait()
+        self.dll_ok = await asyncio.to_thread(fsr4_dll.is_valid, _ffx_path())
+        return await self.get_state()
+
     async def cancel_download(self) -> dict:
         self._cancel = True
         return await self.get_state()
@@ -235,10 +241,14 @@ class Plugin:
         status = fsr4_install.read_status(self.manifest, appid)
         verdict, reason = fsr4_install.session_verdict(status, self.sessions.pop(appid, None), launch_options,
                                                        bool(entry.get("launch_applied")))
-        if verdict == "ok":
-            async with self.lock:
+        async with self.lock:
+            # one session without our DLL is usually a launcher closed early; twice in a row is worth a warning
+            entry["missed"] = entry.get("missed", 0) + 1 if verdict == "missed" else 0
+            if verdict == "missed" and entry["missed"] >= 2:
+                verdict, reason = "failed", reason + " It happened twice in a row."
+            if verdict == "ok":
                 entry["verified"] = fsr4_env.fingerprint(status)
-                await asyncio.to_thread(self.manifest.save)
+            await asyncio.to_thread(self.manifest.save)
         if verdict == "failed":
             decky.logger.warning(f"FSR4 not active for {appid}: {reason} status={status}")
         return {"managed": True, "verdict": verdict, "reason": reason}

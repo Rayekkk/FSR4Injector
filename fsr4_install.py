@@ -99,6 +99,17 @@ def _copy(src, dst):
     _replace_via_tmp(dst, lambda tmp: shutil.copyfile(src, tmp))
 
 
+def _link_or_copy(src, dst):
+    """A hard link to src where the file system allows it, so every game shares one 82 MB copy of AMD's library;
+    a copy on another drive (an SD card), on FAT/exFAT or where links are refused."""
+    def fill(tmp):
+        try:
+            os.link(src, tmp)
+        except OSError:
+            shutil.copyfile(src, tmp)
+    _replace_via_tmp(dst, fill)
+
+
 def _write(dst, data):
     def fill(tmp):
         with open(tmp, "wb") as f:
@@ -139,7 +150,7 @@ def enable(manifest, game, shim_path, ffx_path, launch_options, gpu=None, launch
             if name == GPU:
                 _write(dst, gpu_file_content(gpu))
             else:
-                _copy(sources[name], dst)
+                (_link_or_copy if name == FFX else _copy)(sources[name], dst)
             entry["files"][name] = want[name]
             manifest.entries[appid] = entry  # recorded as soon as a file exists, so a crash can still be undone
             manifest.save()
@@ -253,6 +264,8 @@ def session_verdict(status, session_start, launch_options, managed=True):
     """verdict() for a session that just ended: a status not written during it means our DLL never loaded.
 
     managed: whether the plugin set the launch options (else the user adds the token by hand).
+    "missed": not loaded although the token is there; often harmless (closed in a launcher, DirectX 11 mode), so the
+    caller only warns when it happens again.
     """
     started = _epoch((status or {}).get("started"))
     if session_start and (started is None or started < session_start - 5):  # shim clock has 1 s resolution
@@ -262,7 +275,7 @@ def session_verdict(status, session_start, launch_options, managed=True):
                                   "launch options (Copy launch options in the plugin).")
             return "failed", (f"FSR4 Injector was not loaded: the game's launch options no longer contain {TOKEN} "
                               "(another tool may have changed them). Toggle the game off and on to repair.")
-        return "failed", ("FSR4 Injector's DLL was not loaded in this session (the game did not start DirectX 12, "
+        return "missed", ("FSR4 Injector's DLL was not loaded in this session (the game did not start DirectX 12, "
                           "for example it ran in DirectX 11 mode or was closed in its launcher).")
     return verdict(status)
 

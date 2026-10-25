@@ -33,6 +33,7 @@ that one missing answer and manages everything around it.
 | **Never fails silently** | After every session it checks that FSR 4 really ran, and tells you when it did not and why |
 | **Update aware** | Marks a game for a re-check after a SteamOS or Proton update and says what changed |
 | **Clean rollback** | Turning a game off removes exactly what was added and puts its launch options back |
+| **Repair** | **Repair FSR4 in all games** re-checks AMD's library and puts the plugin's files and launch option back, e.g. after a game update |
 | **Updates** | **About → Check for updates** downloads a newer release from GitHub to your Downloads folder and checks it |
 
 Measured on a Legion Go 2 (Spider-Man Remastered menu, 1920×1200, Quality): FSR 3 13.7 ms,
@@ -62,7 +63,8 @@ Adding DLLs to a game's folder can get you kicked or banned in online games, so:
 
 You can still turn any of them on one by one, at your own risk.
 
-Each game gets its own copy of AMD's library, about 82 MB.
+Games on the same drive as the plugin share one copy of AMD's library (about 82 MB); a game on
+another drive, such as an SD card, gets its own copy.
 
 ## Installation
 
@@ -129,7 +131,8 @@ copies both.
 | "The AMD DLL refused FSR4 and fell back to FSR3" | Usually a SteamOS or Proton update. Check for a plugin update |
 | "…launch options no longer contain WINEDLLOVERRIDES…" | Another tool rewrote them. Turn the game off and on again |
 | "GPU … is not supported by this plugin version" | The game's copy of the GPU details is missing or from another device. Turn the game off and on again |
-| "FSR4 Injector's DLL was not loaded in this session" | The game did not start DirectX 12 (DirectX 11 mode, or closed in its launcher), or its launch option is missing |
+| "FSR4 Injector's DLL was not loaded in this session" | Shown when it happens twice in a row. The game did not start DirectX 12 (DirectX 11 mode, or closed in its launcher), or a game update or Steam's file check removed the plugin's files: press **Repair FSR4 in all games** |
+| "AMD's FSR4 library is missing or damaged" | Download it again with **Accept and download**, then press **Repair FSR4 in all games** |
 | "This AMD DLL version is not recognised" | The plugin needs an update for a newer AMD library |
 | "…already sets WINEDLLOVERRIDES…" | Turn off **Add launch option automatically** and add `amdxc64=n,b` to the game's existing override yourself, e.g. `WINEDLLOVERRIDES="dxgi=n,b;amdxc64=n,b" %command%` |
 | "…already exists in the game folder and is not ours" | Another mod uses the same file name; FSR4 Injector leaves it alone |
@@ -169,8 +172,8 @@ accepted, the Proton it ran under and when. After each session the plugin compar
 session's start time and the game's launch options, and remembers the SteamOS and Proton
 versions FSR 4 last worked with.
 
-Each game folder gets its own copy of AMD's library (about 82 MB), so turning a game off never
-affects another. Files are only ever added. A file of the same name that is not ours stops the install; every
+AMD's library is hard-linked into each game on the same drive, so all of them share one copy on
+disk (a game on another drive gets a copy), and turning a game off removes only its own link. Files are only ever added. A file of the same name that is not ours stops the install; every
 file written is recorded with its SHA-256 and removed only while it still matches. Proton
 itself is not modified and nothing is installed system-wide.
 

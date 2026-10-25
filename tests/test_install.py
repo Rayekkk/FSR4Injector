@@ -90,6 +90,21 @@ class InstallRollback(unittest.TestCase):
     def files(self):
         return sorted(os.listdir(self.target))
 
+    def test_amd_library_is_one_hard_link_when_the_drive_allows(self):
+        I.enable(self.m, self.game, self.shim, self.ffx, "")
+        self.assertTrue(os.path.samefile(self.ffx, os.path.join(self.target, I.FFX)))
+        self.assertFalse(os.path.samefile(self.shim, os.path.join(self.target, I.SHIM)))  # the shim stays a copy
+        I.disable(self.m, 42, "")
+        self.assertTrue(os.path.isfile(self.ffx))  # removing the game's link keeps the plugin's copy
+
+    def test_amd_library_is_copied_where_links_are_refused(self):
+        with mock.patch.object(I.os, "link", side_effect=OSError(18, "Invalid cross-device link")):
+            I.enable(self.m, self.game, self.shim, self.ffx, "")
+        dst = os.path.join(self.target, I.FFX)
+        self.assertFalse(os.path.samefile(self.ffx, dst))
+        with open(dst, "rb") as f:
+            self.assertEqual(f.read(), b"amd")
+
     def test_enable_then_disable_restores_folder_and_options(self):
         gpu = {"device": 0x150E, "family": 150, "rev": 20}
         opts = I.enable(self.m, self.game, self.shim, self.ffx, "-novid", gpu)
@@ -146,13 +161,9 @@ class InstallRollback(unittest.TestCase):
         self.assertEqual(I.refresh_shim(self.m, os.path.join(self.target, "missing.dll")), 0)
 
     def test_partial_install_is_recorded_for_rollback(self):
-        real_copy = I._copy
-
         def flaky(src, dst):
-            if dst.endswith(I.FFX):
-                raise OSError("disk full")
-            real_copy(src, dst)
-        with mock.patch.object(I, "_copy", flaky), self.assertRaisesRegex(I.InstallError, "disk full"):
+            raise OSError("disk full")
+        with mock.patch.object(I, "_link_or_copy", flaky), self.assertRaisesRegex(I.InstallError, "disk full"):
             I.enable(self.m, self.game, self.shim, self.ffx, "")
         self.assertEqual(list(I.Manifest(self.mpath).entries[42]["files"]), ["amdxc64.dll"])
         # a copy that fails half way leaves no temp file behind
@@ -239,8 +250,9 @@ class SessionVerdict(unittest.TestCase):
         self.assertEqual(verdict, "failed")
         self.assertIn("launch options no longer contain", reason)
 
-    def test_missing_status_is_a_failure(self):
-        self.assertEqual(I.session_verdict(None, self.start, I.with_token(""))[0], "failed")
+    def test_missing_status_with_the_token_is_a_miss(self):
+        # the caller warns only on the second miss in a row: a launcher closed early is not a failure
+        self.assertEqual(I.session_verdict(None, self.start, I.with_token(""))[0], "missed")
 
     def test_without_session_start_falls_back_to_plain_verdict(self):
         self.assertEqual(I.session_verdict(self.ok, None, ""), I.verdict(self.ok))
@@ -304,6 +316,29 @@ class Plugin(unittest.TestCase):
             res = await updated.disable_game(1817070, res["launch_options"])
             self.assertEqual(res["launch_options"], "")
             self.assertEqual(sorted(os.listdir(target)), ["Spider-Man.exe", "amd_fidelityfx_dx12.dll"])
+
+            # a session our DLL missed: quiet the first time, a warning when it happens again; a good one resets it
+            updated.dll_ok = True  # the fake DLL above has no AMD checksum
+            res = await updated.enable_game(1817070, "")
+            self.assertTrue(res["ok"], res)
+            for expected in ("missed", "failed", "missed"):
+                await updated.session_started(1817070)
+                updated.sessions[1817070] = time.time() + 60  # the status file predates this session
+                ended = await updated.session_ended(1817070, res["launch_options"])
+                self.assertEqual(ended["verdict"], expected)
+                if expected == "failed":
+                    self.assertIn("twice in a row", ended["reason"])
+                    await updated.session_started(1817070)
+                    _write(os.path.join(target, I.STATUS), json.dumps(
+                        {"started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "ffx_requested": True,
+                         "dll_loaded": True, "family": 150, "active": "INT8_LITE"}).encode())
+                    self.assertEqual((await updated.session_ended(1817070, res["launch_options"]))["verdict"], "ok")
+
+            # Repair re-checks AMD's library: a damaged copy has to be downloaded again
+            _write(main._ffx_path(), b"damaged")
+            self.assertFalse((await updated.verify_library())["dll_ready"])
+            updated.dll_ok = True
+            await updated.disable_game(1817070, res["launch_options"])
 
             # settings: validated, persisted, and used by the next enable
             state = await updated.get_state()

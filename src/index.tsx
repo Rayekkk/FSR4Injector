@@ -69,6 +69,7 @@ const sessionStarted = callable<[number], { managed: boolean }>("session_started
 const sessionEnded = callable<[number, string], { managed: boolean; verdict?: string; reason?: string }>("session_ended");
 const startupNotice = callable<[], { message: string }>("startup_notice");
 const setSetting = callable<[string, boolean], State>("set_setting");
+const verifyLibrary = callable<[], State>("verify_library");
 const applyWatermark = callable<[number, string], { ok: boolean; launch_options: string }>("apply_watermark");
 
 interface UpdateInfo { current_version?: string; latest_version?: string; update_available?: boolean; asset_name?: string; error?: string }
@@ -130,7 +131,7 @@ const Content: FC = () => {
   const [busy, setBusy] = useState<number | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState("");
-  const [bulk, setBulk] = useState<{ on: boolean; text: string } | null>(null);
+  const [bulk, setBulk] = useState<{ kind: "on" | "off" | "repair"; text: string } | null>(null);
   const [error, setError] = useState("");
 
   const setState = useCallback((s: State) => { lastState = s; setStateRaw(s); }, []);
@@ -216,7 +217,7 @@ const Content: FC = () => {
     let ok = 0;
     setBusy(-1);
     for (const [i, g] of targets.entries()) {
-      setBulk({ on, text: `${i + 1}/${targets.length}` });
+      setBulk({ kind: on ? "on" : "off", text: `${i + 1}/${targets.length}` });
       if (await apply(g, on)) ok++;
     }
     setBulk(null);
@@ -227,6 +228,32 @@ const Content: FC = () => {
       (failed ? ` ${games(failed)} could not be changed; see the messages above.` : "") +
       (skipped ? ` Skipped as possibly online: ${games(skipped)}; turn ${skipped === 1 ? "it" : "them"} on by hand if you want.` : ""));
     refresh();
+  };
+
+  // Repair: AMD's library must still pass its checksum, then every game that has FSR4 on is set up again.
+  const repairAll = async () => {
+    setBusy(-1);
+    try {
+      const next = await verifyLibrary();
+      setState(next);
+      if (!next.dll_ready) {
+        notify("FSR4 Injector", "AMD's FSR4 library is missing or damaged. Download it again above, then repair.");
+        return;
+      }
+      const targets = next.games.filter(g => g.enabled);
+      let ok = 0;
+      for (const [i, g] of targets.entries()) {
+        setBulk({ kind: "repair", text: `${i + 1}/${targets.length}` });
+        if (await apply(g, true)) ok++;
+      }
+      notify("FSR4 Injector", `Repaired ${ok} of ${targets.length} game${targets.length === 1 ? "" : "s"}.`);
+    } catch (e) {
+      notify("FSR4 Injector", String(e));
+    } finally {
+      setBulk(null);
+      setBusy(null);
+      refresh();
+    }
   };
 
   // The new setting applies at once to every game whose launch options the plugin manages.
@@ -328,7 +355,7 @@ const Content: FC = () => {
           <PanelSectionRow>
             <ButtonItem layout="below" disabled={busy !== null} onClick={() => applyAll(true)}
               description="Sets up every compatible game in the list. Online games and games with anti-cheat are skipped.">
-              {bulk?.on ? `Turning on… ${bulk.text}` : "Turn on FSR4 in all games"}
+              {bulk?.kind === "on" ? `Turning on… ${bulk.text}` : "Turn on FSR4 in all games"}
             </ButtonItem>
           </PanelSectionRow>
         )}
@@ -336,7 +363,15 @@ const Content: FC = () => {
           <PanelSectionRow>
             <ButtonItem layout="below" disabled={busy !== null} onClick={() => applyAll(false)}
               description="Removes the plugin's files and launch option from every game, leaving them as they were. Do this before uninstalling.">
-              {bulk && !bulk.on ? `Restoring… ${bulk.text}` : "Turn off FSR4 and restore all games"}
+              {bulk?.kind === "off" ? `Restoring… ${bulk.text}` : "Turn off FSR4 and restore all games"}
+            </ButtonItem>
+          </PanelSectionRow>
+        )}
+        {state.games.some(g => g.enabled) && (
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={busy !== null} onClick={repairAll}
+              description="Checks AMD's library and puts the plugin's files and launch option back in every game that has FSR4 on, for example after a game update or Steam's file check.">
+              {bulk?.kind === "repair" ? `Repairing… ${bulk.text}` : "Repair FSR4 in all games"}
             </ButtonItem>
           </PanelSectionRow>
         )}
