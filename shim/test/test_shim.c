@@ -45,7 +45,9 @@ static int loader_notification_child(const char *status_path)
     if (!CopyFileA(src, dst, FALSE)) return 3;
     HMODULE m = LoadLibraryA(dst);
     char *json = read_file(status_path);
-    int ok = m && json && strstr(json, "\"dll_loaded\":true");
+    /* loaded and given the GPU answer, but a build we do not know gets no model hooks */
+    int ok = m && json && strstr(json, "\"dll_loaded\":true") && strstr(json, "\"model_hooks\":0") &&
+             !strstr(json, "\"ffx_version\":\"2.4.0.4370\"");
     if (!ok) printf("child status: %s\n", json ? json : "(none)");
     /* pinned by the shim, so the copy stays locked until we exit; the parent removes it */
     return ok ? 0 : 1;
@@ -125,6 +127,7 @@ int main(int argc, char **argv)
             CHECK(strstr(json, "\"dll_loaded\":true") != NULL);
             CHECK(strstr(json, "\"iat_patched\":true") != NULL);
             CHECK(strstr(json, "\"model_hooks\":4") != NULL);
+            CHECK(strstr(json, "\"ffx_version\":\"2.4.0.4370\"") != NULL); /* the build the hooks are made for */
             CHECK(strstr(json, "\"kmd_answered\":true") != NULL);
             CHECK(strstr(json, "\"family\":150") != NULL);
             CHECK(strstr(json, "\"active\":null") != NULL); /* no model asked yet */

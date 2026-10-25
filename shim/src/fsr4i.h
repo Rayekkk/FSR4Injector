@@ -15,6 +15,7 @@ void fsr4i_log(const char *fmt, ...);
 /* Exposed for the self-test. */
 BOOL fsr4i_lookup_family(UINT vendor, UINT device, UINT *family, UINT *rev);
 int fsr4i_hook_models(HMODULE ffx);
+BOOL fsr4i_module_version(HMODULE mod, WORD v[4]);
 unsigned char fsr4i_model_allowed(size_t model, unsigned char supported);
 BOOL fsr4i_patch_iat(HMODULE mod, const char *dll, const char *func, void *hook, void **orig);
 LONG APIENTRY fsr4i_fake_query_adapter_info(void *arg);

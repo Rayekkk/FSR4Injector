@@ -69,6 +69,7 @@ static struct
     UINT family, rev;
     BOOL ffx_requested, dll_loaded, iat_patched, kmd_answered;
     int model_hooks;
+    char ffx_version[24]; /* amdxcffx64's file version, "" when it has none */
     signed char model[NMODELS]; /* -1 not asked, 0 rejected, 1 accepted */
     char provider[64];
     char compat_tool[400]; /* JSON-escaped Proton directory Steam launched us with */
@@ -181,11 +182,12 @@ int fsr4i_status_json(char *buf, size_t len)
 
     return snprintf(buf, len,
         "{\"shim\":\"" FSR4I_VERSION "\",\"pid\":%lu,\"started\":\"%s\",\"gpu\":\"%04x:%04x\","
-        "\"ffx_requested\":%s,\"dll_loaded\":%s,\"iat_patched\":%s,\"model_hooks\":%d,"
+        "\"ffx_requested\":%s,\"dll_loaded\":%s,\"ffx_version\":\"%s\",\"iat_patched\":%s,\"model_hooks\":%d,"
         "\"kmd_answered\":%s,\"family\":%u,\"rev\":%u,\"models\":{%s},\"provider\":\"%s\","
         "\"compat_tool\":\"%s\",\"last_hr\":\"0x%08lx\",\"active\":%s%s%s}\n",
         GetCurrentProcessId(), st.started, st.vendor, st.device,
-        st.ffx_requested ? "true" : "false", st.dll_loaded ? "true" : "false", st.iat_patched ? "true" : "false",
+        st.ffx_requested ? "true" : "false", st.dll_loaded ? "true" : "false", st.ffx_version,
+        st.iat_patched ? "true" : "false",
         st.model_hooks, st.kmd_answered ? "true" : "false", st.family, st.rev, models_json, st.provider,
         st.compat_tool, (unsigned long)st.last_hr, active ? "\"" : "", active ? active : "null", active ? "\"" : "");
 }
@@ -480,20 +482,56 @@ void fsr4i_on_ffx_request(LUID luid)
     ReleaseSRWLockExclusive(&lock);
 }
 
+/* AMD builds whose model providers keep IsSupported in IS_SUPPORTED_SLOT. Another build may have moved it, and a
+ * hook in the wrong slot would crash the game, so its models are left alone (the GPU answer still works). */
+static const WORD known_ffx[][4] = {
+    { 2, 4, 0, 4370 }, /* FidelityFX 2.4.0.4370 = FSR 4.1.2, Adrenalin 26.10.1 */
+};
+
+/* File version from the module's own version resource, in memory: no version.dll needed. */
+BOOL fsr4i_module_version(HMODULE mod, WORD v[4])
+{
+    HRSRC res = FindResourceW(mod, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16) /* RT_VERSION */);
+    HGLOBAL h = res ? LoadResource(mod, res) : NULL;
+    const BYTE *p = h ? LockResource(h) : NULL;
+    DWORD size = res ? SizeofResource(mod, res) : 0;
+
+    /* VS_VERSIONINFO: a small header and its key, then VS_FIXEDFILEINFO on a DWORD boundary */
+    for (DWORD i = 0; p && i + sizeof(VS_FIXEDFILEINFO) <= size && i < 256; i += 4)
+    {
+        const VS_FIXEDFILEINFO *ffi = (const void *)(p + i);
+        if (ffi->dwSignature != 0xFEEF04BD) continue;
+        v[0] = HIWORD(ffi->dwFileVersionMS);
+        v[1] = LOWORD(ffi->dwFileVersionMS);
+        v[2] = HIWORD(ffi->dwFileVersionLS);
+        v[3] = LOWORD(ffi->dwFileVersionLS);
+        return TRUE;
+    }
+    return FALSE;
+}
+
 void fsr4i_on_ffx_loaded(HMODULE ffx)
 {
     static LONG done;
     HMODULE pinned;
+    WORD v[4] = { 0 };
+    BOOL has_version, known = FALSE;
     if (InterlockedExchange(&done, 1)) return;
+
+    has_version = fsr4i_module_version(ffx, v); /* before our lock: resource lookup may take the loader lock */
+    for (size_t i = 0; has_version && i < sizeof(known_ffx) / sizeof(known_ffx[0]); i++)
+        known |= !memcmp(known_ffx[i], v, sizeof(v));
 
     /* amdxcffx64 will call into us from now on, so stay loaded even if whoever loaded us frees us */
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
                        (LPCWSTR)fsr4i_on_ffx_loaded, &pinned);
     AcquireSRWLockExclusive(&lock);
     st.dll_loaded = TRUE;
+    if (has_version) snprintf(st.ffx_version, sizeof(st.ffx_version), "%u.%u.%u.%u", v[0], v[1], v[2], v[3]);
     st.iat_patched = fsr4i_patch_iat(ffx, "KERNEL32.dll", "GetProcAddress", hook_get_proc_address, (void **)&real_gpa);
-    st.model_hooks = fsr4i_hook_models(ffx);
-    fsr4i_log("amdxcffx64 loaded, iat_patched=%d model_hooks=%d", st.iat_patched, st.model_hooks);
+    st.model_hooks = known ? fsr4i_hook_models(ffx) : 0;
+    fsr4i_log("amdxcffx64 %s loaded, iat_patched=%d model_hooks=%d%s", st.ffx_version, st.iat_patched,
+              st.model_hooks, known ? "" : " (unknown build: model hooks left off)");
     write_status_locked();
     ReleaseSRWLockExclusive(&lock);
 }
