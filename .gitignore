@@ -27,9 +27,5 @@ tests/_settings/
 .DS_Store
 Thumbs.db
 
-# Claude Code
-.claude/
-CLAUDE.md
-
 # Shim build output (bin/amdxc64.dll is the shipped copy)
 shim/build/

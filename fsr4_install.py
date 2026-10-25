@@ -23,7 +23,7 @@ SHIM = "amdxc64.dll"
 FFX = "amdxcffx64.dll"
 GPU = "fsr4injector.gpu"  # the GPU's real family/revision for the shim
 STATUS = "fsr4injector.status.json"
-MODE_NATIVE = "native"  # the game's own FidelityFX path (FSR 3.1+); room for an OptiScaler mode later
+MODE_NATIVE = "native"  # the game's own FidelityFX path (FSR 3.1+)
 # Required: without it Wine loads its builtin amdxc64 from system32 and ignores ours (checked on Proton 11).
 TOKEN = "WINEDLLOVERRIDES=amdxc64=n,b"
 
