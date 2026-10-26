@@ -10,6 +10,10 @@ All notable changes to FSR4 Injector, newest first.
   option back in every game that has FSR 4 on, for example after a game update or Steam's file
   check. If AMD's library itself is damaged or missing, it tells you to download it again first.
 
+- **Decky Launch Options integration:** with
+  [Decky Launch Options](https://github.com/Rayekkk/DeckyLaunchOptions) installed, **Add to Decky
+  Launch Options** offers the FSR4 launch option and AMD's watermark to it, to switch per game there.
+
 ### Changed
 
 - Games that already set `WINEDLLOVERRIDES` (your own overrides, or another tool such as ReShade or

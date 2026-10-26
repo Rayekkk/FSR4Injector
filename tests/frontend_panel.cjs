@@ -6,7 +6,8 @@ const root = path.resolve(__dirname, '..'), ts = require(path.join(root, 'node_m
 const settle = async () => { for (let i = 0; i < 24; i++) await Promise.resolve(); };
 
 function harness() {
-  const slots = [], effects = new Map(), pending = [], calls = [], toasts = [], callbacks = {}, applied = [], copied = [];
+  const slots = [], effects = new Map(), pending = [], calls = [], toasts = [], callbacks = {}, applied = [], copied = [], events = [];
+  const window = { hasDeckyLaunchOptions: false, dispatchEvent: e => events.push(e) };
   let cursor = 0;
   const same = (a, b) => a && b && a.length === b.length && a.every((v, i) => v === b[i]);
   const hooks = {
@@ -38,6 +39,7 @@ function harness() {
   vm.runInNewContext(output, {
     module: mod, exports: mod.exports, console, SteamClient, appStore, setTimeout, clearTimeout, setInterval, clearInterval,
     navigator: { clipboard: { writeText: async t => { copied.push(t); } } },
+    window, CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
     require(name) {
       if (name === 'react') return hooks;
       if (name === 'react/jsx-runtime') return jsx;
@@ -49,7 +51,7 @@ function harness() {
   const plugin = mod.exports;
   const render = () => { cursor = 0; const tree = plugin.Content({}); pending.splice(0).forEach(fn => fn()); return tree; };
   return {
-    plugin, render, calls, toasts, callbacks, applied, copied,
+    plugin, render, calls, toasts, callbacks, applied, copied, events, window,
     remount() { for (const e of effects.values()) e.cleanup?.(); effects.clear(); slots.length = 0; pending.length = 0; return render(); },
     respond(name, value) {
       const call = calls.find(c => c.name === name && !c.settled); assert.ok(call, `pending ${name}`);
@@ -223,6 +225,17 @@ const state = (over = {}) => ({
   await settle();
   assert.deepEqual(h.copied, ['WINEDLLOVERRIDES=amdxc64=n,b %command%', 'WINEDLLOVERRIDES=amdxc64=n,b FSR_WATERMARK=1 %command%']);
   assert.match(h.toasts.at(-1).body, /^Copied: /);
+  // Decky Launch Options: the button shows only when that plugin is there, and offers both entries with stable ids
+  assert.ok(!button(tree, 'Add to Decky Launch Options'));
+  h.window.hasDeckyLaunchOptions = true;
+  tree = h.render();
+  button(tree, 'Add to Decky Launch Options').props.onClick();
+  assert.equal(h.events.at(-1).type, 'dlo-add-launch-options');
+  assert.deepEqual(JSON.parse(JSON.stringify(h.events.at(-1).detail.map(o => [o.id, o.group, o.name, o.on, o.off, o.enableGlobally]))), [
+    ['fsr4-injector', 'FSR4 Injector', 'FSR4 Injector', 'WINEDLLOVERRIDES=amdxc64=n,b', '', false],
+    ['fsr4-injector-watermark', 'FSR4 Injector', 'AMD FSR4 watermark', 'FSR_WATERMARK=1', '', false],
+  ]);
+  h.window.hasDeckyLaunchOptions = false;
   h.remount();
   h.respond('get_state', state());
   await settle();

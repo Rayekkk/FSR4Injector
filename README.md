@@ -123,6 +123,12 @@ tool such as ReShade or OptiScaler set it up), the plugin adds `amdxc64=n,b` to 
 `WINEDLLOVERRIDES="dxgi=n,b;amdxc64=n,b"`, and turning FSR 4 off takes out only that entry.
 Overrides set outside Steam's launch options (in a wrapper script, with `env WINEDLLOVERRIDES=…` or
 in the game's Wine registry) are not visible to the plugin.
+
+With [Decky Launch Options](https://github.com/Rayekkk/DeckyLaunchOptions) installed, **Add to Decky
+Launch Options** offers **FSR4 Injector** and **AMD FSR4 watermark** to it, in their own tab, to switch
+per game there. Turn off **Add launch option automatically** then; FSR 4 still has to be on in this
+plugin, which puts the files in the game. If other options there also set `WINEDLLOVERRIDES`, add an
+env variable merge for it with `;` in Decky Launch Options.
 **Show AMD's FSR4 watermark** also adds `FSR_WATERMARK=1`, so AMD's library draws which FSR 4
 model runs; it changes the games already set up at once. **Copy launch options + watermark**
 copies both.

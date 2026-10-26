@@ -107,6 +107,20 @@ const MiB = (b: number) => `${(b / 2 ** 20).toFixed(0)} MiB`;
 const ANTICHEAT_WARNING = "Anti-cheat detected: adding DLLs to this game can get you kicked or banned in online play. " +
   "Turning FSR4 on is at your own risk.";
 
+// Decky Launch Options (github.com/Rayekkk/DeckyLaunchOptions) imports launch options other plugins offer; it asks the
+// user to confirm. Stable ids make a second import update these entries instead of adding new ones.
+const hasLaunchOptionsPlugin = () => typeof window !== "undefined" && !!(window as any).hasDeckyLaunchOptions;
+const offerToLaunchOptionsPlugin = (copy: State["copy_options"]) => {
+  const [token, watermark] = copy.watermark.replace(" %command%", "").split(" ");
+  window.dispatchEvent(new CustomEvent("dlo-add-launch-options", {
+    detail: [
+      { id: "fsr4-injector", group: "FSR4 Injector", name: "FSR4 Injector", on: token, off: "", enableGlobally: false },
+      { id: "fsr4-injector-watermark", group: "FSR4 Injector", name: "AMD FSR4 watermark", on: watermark, off: "",
+        enableGlobally: false },
+    ],
+  }));
+};
+
 // The Steam client does not always grant the async clipboard API to plugins; fall back to a selected textarea.
 const copyText = async (text: string) => {
   try {
@@ -409,6 +423,16 @@ const Content: FC = () => {
             Copy launch options + watermark
           </ButtonItem>
         </PanelSectionRow>
+        {hasLaunchOptionsPlugin() && (
+          <PanelSectionRow>
+            <ButtonItem layout="below" onClick={() => offerToLaunchOptionsPlugin(state.copy_options)}
+              description={"Adds FSR4 Injector and AMD FSR4 watermark to Decky Launch Options, to switch per game there. " +
+                "Then turn off Add launch option automatically above; FSR4 still has to be on here for the game's files. " +
+                "To combine with other WINEDLLOVERRIDES options, add an env variable merge for it with ; in Decky Launch Options."}>
+              Add to Decky Launch Options
+            </ButtonItem>
+          </PanelSectionRow>
+        )}
       </PanelSection>
 
       <PanelSection title="About">
