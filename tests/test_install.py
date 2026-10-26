@@ -43,14 +43,18 @@ class Discovery(unittest.TestCase):
         _library(steam, 5000, "Online", "Online", ["amd_fidelityfx_dx12.dll", "EasyAntiCheat/EasyAntiCheat_x64.dll"])
         _library(steam, 5001, "Korean MMO", "KMMO", ["amd_fidelityfx_dx12.dll", "XIGNCODE/x3.xem"])
         _library(steam, 5002, "Old FPS", "OldFPS", ["amd_fidelityfx_dx12.dll", "pb/pbsvc.exe"])
+        _library(steam, 1328670, "Mass Effect LE", "MELE",
+                 ["amd_fidelityfx_dx12.dll", "Game/ME3/BioGame/CookedPCConsole/SFXCharacterClass_Vanguard.pcc"])
         # a manifest whose installdir climbs out of steamapps/common is ignored
         _library(steam, 6000, "Escape", "../../outside", ["amd_fidelityfx_dx12.dll"])
 
         games = {g["appid"]: g for g in fsr4_games.scan(steam)}
-        self.assertEqual(set(games), {1817070, 1903340, 5000, 5001, 5002})
+        self.assertEqual(set(games), {1817070, 1903340, 5000, 5001, 5002, 1328670})
         self.assertTrue(games[1903340]["target_dir"].endswith(os.path.join("Binaries", "Win64")))
         self.assertTrue(all(games[a]["anticheat"] for a in (5000, 5001, 5002)))
         self.assertFalse(games[1817070]["anticheat"])
+        # Mass Effect's Vanguard class files are not Riot Vanguard
+        self.assertFalse(games[1328670]["anticheat"])
 
 
 class LaunchOptions(unittest.TestCase):

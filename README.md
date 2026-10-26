@@ -55,8 +55,8 @@ refused.
 
 Adding DLLs to a game's folder can get you kicked or banned in online games, so:
 
-- games with anti-cheat files (Easy Anti-Cheat, BattlEye, Vanguard, XIGNCODE, nProtect
-  GameGuard, PunkBuster, EQU8) get a red warning under their switch;
+- games with anti-cheat files (Easy Anti-Cheat, BattlEye, XIGNCODE, nProtect GameGuard,
+  PunkBuster, EQU8) get a red warning under their switch;
 - **Turn on FSR4 in all games** skips those games, games Steam lists as online (MMO,
   Cross-Platform Multiplayer, Online PvP or Online Co-op) and games Steam gives no categories
   for. Online games are marked in the list.
