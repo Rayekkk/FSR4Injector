@@ -427,8 +427,7 @@ const Content: FC = () => {
           <PanelSectionRow>
             <ButtonItem layout="below" onClick={() => offerToLaunchOptionsPlugin(state.copy_options)}
               description={"Adds FSR4 Injector and AMD FSR4 watermark to Decky Launch Options, to switch per game there. " +
-                "Then turn off Add launch option automatically above; FSR4 still has to be on here for the game's files. " +
-                "To combine with other WINEDLLOVERRIDES options, add an env variable merge for it with ; in Decky Launch Options."}>
+                "Then turn off Add launch option automatically above; FSR4 still has to be on here for the game's files."}>
               Add to Decky Launch Options
             </ButtonItem>
           </PanelSectionRow>
