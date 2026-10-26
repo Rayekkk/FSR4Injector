@@ -12,6 +12,9 @@ All notable changes to FSR4 Injector, newest first.
 
 ### Changed
 
+- Games that already set `WINEDLLOVERRIDES` (your own overrides, or another tool such as ReShade or
+  OptiScaler) no longer refuse FSR 4: the plugin adds `amdxc64=n,b` to that variable and takes only
+  its own entry out again when you turn FSR 4 off.
 - Games on the same drive share one copy of AMD's library instead of 82 MB each.
 - "DLL was not loaded" is shown only when it happens in two sessions in a row, so closing a game
   in its launcher no longer raises a warning.

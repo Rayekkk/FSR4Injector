@@ -89,7 +89,7 @@ Press **Turn off FSR4 and restore all games** first. Decky handles an update as 
 the plugin never removes anything from games on its own. If you skip this, FSR 4 keeps working
 in those games, just without the plugin's checks. To clean up by hand, delete `amdxc64.dll`,
 `amdxcffx64.dll`, `fsr4injector.gpu` and `fsr4injector.status.json` from the game's folder (next to
-its `amd_fidelityfx_*.dll`) and remove `WINEDLLOVERRIDES=amdxc64=n,b` (and `FSR_WATERMARK=1`) from its
+its `amd_fidelityfx_*.dll`) and remove `amdxc64=n,b` from `WINEDLLOVERRIDES` (and `FSR_WATERMARK=1`) in its
 launch options.
 
 ## Quick start
@@ -118,6 +118,11 @@ launch options.
 **Add launch option automatically** (on by default) puts `WINEDLLOVERRIDES=amdxc64=n,b` in front of
 a game's launch options when you turn it on. Turn it off if you manage launch options yourself:
 the plugin then never touches them, and **Copy launch options** copies the text to paste.
+A game can have only one `WINEDLLOVERRIDES`: when it already has one (your own overrides, or another
+tool such as ReShade or OptiScaler set it up), the plugin adds `amdxc64=n,b` to it, e.g.
+`WINEDLLOVERRIDES="dxgi=n,b;amdxc64=n,b"`, and turning FSR 4 off takes out only that entry.
+Overrides set outside Steam's launch options (in a wrapper script, with `env WINEDLLOVERRIDES=…` or
+in the game's Wine registry) are not visible to the plugin.
 **Show AMD's FSR4 watermark** also adds `FSR_WATERMARK=1`, so AMD's library draws which FSR 4
 model runs; it changes the games already set up at once. **Copy launch options + watermark**
 copies both.
@@ -134,7 +139,6 @@ copies both.
 | "FSR4 Injector's DLL was not loaded in this session" | Shown when it happens twice in a row. The game did not start DirectX 12 (DirectX 11 mode, or closed in its launcher), or a game update or Steam's file check removed the plugin's files: press **Repair FSR4 in all games** |
 | "AMD's FSR4 library is missing or damaged" | Download it again with **Accept and download**, then press **Repair FSR4 in all games** |
 | "This AMD DLL version is not recognised" | The plugin needs an update for a newer AMD library |
-| "…already sets WINEDLLOVERRIDES…" | Turn off **Add launch option automatically** and add `amdxc64=n,b` to the game's existing override yourself, e.g. `WINEDLLOVERRIDES="dxgi=n,b;amdxc64=n,b" %command%` |
 | "…already exists in the game folder and is not ours" | Another mod uses the same file name; FSR4 Injector leaves it alone |
 | Download failed | Read the error and retry; the plugin keeps nothing from a failed download |
 

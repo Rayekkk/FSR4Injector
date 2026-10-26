@@ -66,9 +66,42 @@ class LaunchOptions(unittest.TestCase):
         edited = applied + " -novid"
         self.assertEqual(I.without_token(edited, "%command%", applied), "%command% -novid")
 
-    def test_refuses_foreign_dll_overrides(self):
-        with self.assertRaises(I.InstallError):
-            I.with_token("WINEDLLOVERRIDES=dxgi=n,b %command%")
+    def test_old_format_is_unchanged_without_other_overrides(self):
+        # launch_applied of games set up by earlier versions must still match byte for byte
+        for original, wm, want in (("~/.dlo/run %command%", False, f"{I.TOKEN} ~/.dlo/run %command%"),
+                                   ("-novid", False, f"{I.TOKEN} %command% -novid"),
+                                   ("", True, f"{I.TOKEN} {I.WATERMARK} %command%")):
+            self.assertEqual(I.with_token(original, wm), want)
+
+    def test_merges_into_another_tools_overrides_in_either_order(self):
+        theirs = 'WINEDLLOVERRIDES="d3dcompiler_47=n;dxgi=n,b"'
+        merged = 'WINEDLLOVERRIDES="d3dcompiler_47=n;dxgi=n,b;amdxc64=n,b"'
+        # theirs first, then FSR4 on; FSR4 off restores theirs exactly
+        applied = I.with_token(f"{theirs} %command%")
+        self.assertEqual(applied, f"{merged} %command%")
+        self.assertTrue(I.has_token(applied))
+        self.assertEqual(I.without_token(applied, f"{theirs} %command%", applied), f"{theirs} %command%")
+        # FSR4 first, the other tool merges its entries after ours; FSR4 off takes out only its entry
+        later = 'WINEDLLOVERRIDES="amdxc64=n,b;d3dcompiler_47=n;dxgi=n,b" %command%'
+        self.assertTrue(I.has_token(later))
+        self.assertEqual(I.without_token(later, "", f"{I.TOKEN} %command%"), f"{theirs} %command%")
+        # the other tool removed first: our entry stays alone, unquoted; then ours goes and the variable with it
+        self.assertEqual(I.without_token(f"{I.TOKEN} %command% -novid", "-novid", "x"), "%command% -novid")
+
+    def test_users_own_override_stays(self):
+        original = "WINEDLLOVERRIDES=dinput8=n,b %command%"
+        applied = I.with_token(original)
+        self.assertEqual(applied, 'WINEDLLOVERRIDES="dinput8=n,b;amdxc64=n,b" %command%')
+        self.assertEqual(I.without_token(applied + " -x", original, applied), "WINEDLLOVERRIDES=dinput8=n,b %command% -x")
+
+    def test_dll_lists_sharing_one_mode(self):
+        self.assertTrue(I.has_token("WINEDLLOVERRIDES=dxgi,amdxc64=n,b %command%"))
+        self.assertFalse(I.has_token("WINEDLLOVERRIDES=dxgi,amdxc64=b %command%"))  # builtin: not ours
+        # amdxc64 leaves the list instead of appearing twice in the variable
+        self.assertEqual(I.with_token("WINEDLLOVERRIDES=dxgi,amdxc64=b %command%"),
+                         'WINEDLLOVERRIDES="dxgi=b;amdxc64=n,b" %command%')
+        self.assertEqual(I.without_token("WINEDLLOVERRIDES=dxgi,amdxc64=n,b %command%", "", "x"),
+                         "WINEDLLOVERRIDES=dxgi=n,b %command%")
 
     def test_idempotent(self):
         once = I.with_token("%command%")
@@ -200,6 +233,15 @@ class LaunchSettings(unittest.TestCase):
         self.assertEqual(I.set_watermark(self.m, 9, opts, False), opts)  # theirs, not ours to take out
         self.assertEqual(I.disable(self.m, 9, opts + " x")["launch_options"], f"{I.WATERMARK} %command% x")
 
+    def test_watermark_next_to_a_merged_variable(self):
+        theirs = 'WINEDLLOVERRIDES="d3dcompiler_47=n;dxgi=n,b"'
+        opts = I.enable(self.m, self.game, self.shim, self.ffx, f"{theirs} ~/.dlo/run %command%")
+        on = I.set_watermark(self.m, 9, opts, True)
+        self.assertEqual(on, f'WINEDLLOVERRIDES="d3dcompiler_47=n;dxgi=n,b;amdxc64=n,b" {I.WATERMARK} ~/.dlo/run %command%')
+        off = I.set_watermark(self.m, 9, on, False)
+        self.assertEqual(off, 'WINEDLLOVERRIDES="d3dcompiler_47=n;dxgi=n,b;amdxc64=n,b" ~/.dlo/run %command%')
+        self.assertEqual(I.disable(self.m, 9, off)["launch_options"], f"{theirs} ~/.dlo/run %command%")
+
     def test_switching_the_watermark_on_set_up_games(self):
         opts = I.enable(self.m, self.game, self.shim, self.ffx, "-novid")
         on = I.set_watermark(self.m, 9, opts, True)
@@ -243,6 +285,11 @@ class SessionVerdict(unittest.TestCase):
 
     def test_status_from_this_session_is_judged_normally(self):
         self.assertEqual(I.session_verdict(self.ok, self.start, I.with_token(""))[0], "ok")
+
+    def test_token_inside_a_merged_variable_counts(self):
+        stale = {**self.ok, "started": "2026-10-24T19:00:00Z"}
+        merged = 'WINEDLLOVERRIDES="d3dcompiler_47=n;amdxc64=n,b" %command%'
+        self.assertEqual(I.session_verdict(stale, self.start, merged)[0], "missed")  # not "options changed"
 
     def test_stale_status_with_token_removed_names_the_cause(self):
         stale = {**self.ok, "started": "2026-10-24T19:00:00Z"}

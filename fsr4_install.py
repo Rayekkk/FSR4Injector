@@ -6,14 +6,16 @@
 Rules that make rollback safe:
   * we only ever add files; a file of the same name that is not ours stops the install,
   * the manifest records every file we wrote with its sha256, and we delete only files whose hash still matches,
-  * launch options: we remember the original string and, on removal, restore it when nobody edited them since,
-    otherwise we take out only our own token.
+  * launch options: our amdxc64=n,b goes into WINEDLLOVERRIDES next to whatever is already there (the user's own
+    overrides or another tool's; a game can have only one such variable). On removal we restore the original
+    string when nobody edited the options since, otherwise we take out only our own entry.
 """
 
 import calendar
 import hashlib
 import json
 import os
+import re
 import shutil
 import time
 
@@ -26,6 +28,8 @@ STATUS = "fsr4injector.status.json"
 MODE_NATIVE = "native"  # the game's own FidelityFX path (FSR 3.1+)
 # Required: without it Wine loads its builtin amdxc64 from system32 and ignores ours (checked on Proton 11).
 TOKEN = "WINEDLLOVERRIDES=amdxc64=n,b"
+ENTRY = "amdxc64=n,b"  # our entry inside WINEDLLOVERRIDES
+_OVERRIDES = re.compile(r"""^WINEDLLOVERRIDES=(["']?)(.*)\1$""")
 WATERMARK = "FSR_WATERMARK=1"  # the shim turns it into AMD's own on-screen FSR 4 watermark
 
 
@@ -56,26 +60,83 @@ class Manifest:
         os.replace(tmp, self.path)
 
 
+def _override_entries(word):
+    """The entries of a WINEDLLOVERRIDES=... launch option word, or None for any other word."""
+    match = _OVERRIDES.match(word)
+    return [e for e in match.group(2).split(";") if e] if match else None
+
+
+def _without_amdxc64(entries):
+    """Entries with amdxc64 taken out; in a list sharing one mode ('dxgi,amdxc64=n,b') the others keep it."""
+    kept = []
+    for entry in entries:
+        dlls, sep, mode = entry.partition("=")
+        rest = [d for d in dlls.split(",") if d and d.lower() != "amdxc64"]
+        if rest:
+            kept.append(",".join(rest) + sep + mode)
+    return kept
+
+
+def _overrides_word(entries):
+    value = ";".join(entries)
+    return f'WINEDLLOVERRIDES="{value}"' if ";" in value else f"WINEDLLOVERRIDES={value}"
+
+
+def _without_ours(words):
+    """Launch option words with our amdxc64 entry taken out of WINEDLLOVERRIDES (dropped once it is empty)."""
+    out = []
+    for word in words:
+        entries = _override_entries(word)
+        if entries is not None:
+            kept = _without_amdxc64(entries)
+            if not kept:
+                continue
+            word = _overrides_word(kept)
+        out.append(word)
+    return out
+
+
+def has_token(options):
+    """Whether the launch options load our amdxc64: amdxc64=n,b in WINEDLLOVERRIDES, alone or in a DLL list."""
+    for word in (options or "").split():
+        for entry in _override_entries(word) or []:
+            dlls, _, mode = entry.partition("=")
+            if mode == "n,b" and "amdxc64" in (d.lower() for d in dlls.split(",")):
+                return True
+    return False
+
+
 def with_token(options, watermark=False):
-    """Launch options with our token (and the watermark) in front; %command% added when the options had none."""
-    words = [w for w in (options or "").split() if w != TOKEN and not (watermark and w == WATERMARK)]
-    options = " ".join(words)
-    if "WINEDLLOVERRIDES=" in options:
-        raise InstallError("this game already sets WINEDLLOVERRIDES in its launch options: turn off \"Add launch option "
-                           "automatically\" and add amdxc64=n,b to that override yourself")
-    if "%command%" not in options:
-        options = f"%command% {options}".strip()
-    return f"{launch_prefix(watermark)} {options}"
+    """Launch options with amdxc64=n,b merged into WINEDLLOVERRIDES (and the watermark next to it).
+
+    Without other overrides this is our token in front, as it always was; %command% is added when the options had
+    none (they were the game's arguments).
+    """
+    words = [w for w in (options or "").split() if not (watermark and w == WATERMARK)]
+    for i, word in enumerate(words):
+        entries = _override_entries(word)
+        if entries is not None:
+            words[i] = _overrides_word(_without_amdxc64(entries) + [ENTRY])
+            if watermark:
+                words.insert(i + 1, WATERMARK)
+            break
+    else:
+        if "%command%" not in words:
+            words = ["%command%"] + words
+        words = launch_prefix(watermark).split() + words
+    if "%command%" not in words:
+        words.append("%command%")
+    return " ".join(words)
 
 
 def without_token(current, original, applied):
-    """Undo with_token: the original when untouched since, else just our words removed (a watermark the user
-    already had stays)."""
+    """Undo with_token: the original when untouched since, else just our entry and watermark taken out (other
+    overrides and a watermark the user already had stay)."""
     current = (current or "").strip()
     if current == applied:
         return original
     users_watermark = WATERMARK in (original or "").split()
-    words = [w for w in current.split() if w != TOKEN and (w != WATERMARK or users_watermark)]
+    words = [w for w in _without_ours(current.split()) if w != WATERMARK or users_watermark]
     if words == ["%command%"] and "%command%" not in original:
         return original
     return " ".join(words)
@@ -140,7 +201,7 @@ def enable(manifest, game, shim_path, ffx_path, launch_options, gpu=None, launch
             raise InstallError(f"{name} already exists in the game folder and is not ours; leaving it alone")
 
     # Our token can already be there (left by an earlier install); it is never part of the user's original.
-    original = " ".join(w for w in (launch_options or "").split() if w != TOKEN)
+    original = " ".join(_without_ours((launch_options or "").split()))
     entry = manifest.entries.get(appid) or {"target_dir": target, "files": {}, "launch_original": original}
     entry.setdefault("mode", MODE_NATIVE)
     new_options = with_token(launch_options, watermark) if launch else None
@@ -170,10 +231,7 @@ def set_watermark(manifest, appid, current, on):
     if not entry or not entry.get("launch_applied"):
         return None
     if on:
-        try:
-            new = with_token(current, True)
-        except InstallError:
-            return None
+        new = with_token(current, True)
     else:
         users_watermark = WATERMARK in entry.get("launch_original", "").split()
         new = " ".join(w for w in (current or "").split() if w != WATERMARK or users_watermark)
@@ -269,7 +327,7 @@ def session_verdict(status, session_start, launch_options, managed=True):
     """
     started = _epoch((status or {}).get("started"))
     if session_start and (started is None or started < session_start - 5):  # shim clock has 1 s resolution
-        if TOKEN not in (launch_options or "").split():
+        if not has_token(launch_options):
             if not managed:
                 return "failed", (f"FSR4 Injector was not loaded: add {TOKEN} in front of %command% in the game's "
                                   "launch options (Copy launch options in the plugin).")
