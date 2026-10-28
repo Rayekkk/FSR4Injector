@@ -29,3 +29,6 @@ Thumbs.db
 
 # Shim build output (bin/amdxc64.dll is the shipped copy)
 shim/build/
+
+# Release ZIPs (scripts/package.mjs)
+artifacts/

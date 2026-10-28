@@ -1,0 +1,35 @@
+# FSR4Injector's own job next to the shared checks.yml (DeckyKit STANDARD §6): the LGPL amdxc64 shim in C.
+# The self-test needs AMD's DLL, which may not be redistributed, so CI only checks that the shim compiles cleanly
+# and exports what amdxc64 must export.
+name: Shim
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shim:
+    name: Shim builds with MinGW-w64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+      - name: Compile shim and self-test
+        run: CFLAGS_EXTRA=-Werror bash shim/build.sh
+      - name: Check exports
+        run: |
+          x86_64-w64-mingw32-objdump -p shim/build/amdxc64.dll > exports.txt
+          grep -q AmdExtD3DCreateInterface exports.txt
+          grep -q AmdGetDxcModuleHandle exports.txt

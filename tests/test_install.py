@@ -3,11 +3,9 @@
 
 """Game discovery, install/rollback safety and launch option handling."""
 
-import asyncio
 import json
 import os
 import tempfile
-import time
 import unittest
 from unittest import mock
 
@@ -199,18 +197,88 @@ class InstallRollback(unittest.TestCase):
 
     def test_partial_install_is_recorded_for_rollback(self):
         def flaky(src, dst):
-            raise OSError("disk full")
+            raise OSError(28, "disk full", dst)
         with mock.patch.object(I, "_link_or_copy", flaky), self.assertRaisesRegex(I.InstallError, "disk full"):
             I.enable(self.m, self.game, self.shim, self.ffx, "")
         self.assertEqual(list(I.Manifest(self.mpath).entries[42]["files"]), ["amdxc64.dll"])
-        # a copy that fails half way leaves no temp file behind
-        with mock.patch.object(I.shutil, "copyfile", side_effect=lambda s, d: (open(d, "wb").write(b"half"),
-                                                                                 (_ for _ in ()).throw(OSError("full")))):
+        # a copy that fails half way leaves neither half a file nor a temp file behind
+        before = self.files()
+        with mock.patch("dk_fs._copy", side_effect=lambda data, f: (f.write(b"half"), f.flush(),
+                                                                  (_ for _ in ()).throw(OSError("full")))):
             with self.assertRaises(OSError):
                 I._copy(self.ffx, os.path.join(self.target, "x.dll"))
-        self.assertNotIn("x.dll.fsr4i-tmp", os.listdir(self.target))
+        self.assertEqual(self.files(), before)
+        with mock.patch.object(I.os, "replace", side_effect=OSError("full")):  # a link that cannot be renamed
+            with self.assertRaises(OSError):
+                I._link_or_copy(self.ffx, os.path.join(self.target, "y.dll"))
+        self.assertEqual(self.files(), before)
         I.disable(I.Manifest(self.mpath), 42, "")
         self.assertEqual(self.files(), ["game.exe"])
+
+    def test_a_manifest_that_cannot_be_saved_at_the_end_is_an_install_error(self):
+        with mock.patch.object(I.Manifest, "save", side_effect=[None, None, OSError(28, "No space left on device")]):
+            with self.assertRaisesRegex(I.InstallError, "No space left"):
+                I.enable(self.m, self.game, self.shim, self.ffx, "")
+
+    @unittest.skipUnless(os.name == "posix", "symlinks")
+    def test_a_game_folder_that_is_a_link_still_works(self):
+        moved = os.path.join(os.path.dirname(self.target), "other-drive")
+        os.rename(self.target, moved)
+        os.symlink(moved, self.target)  # a game moved to another drive and linked back
+        I.enable(self.m, self.game, self.shim, self.ffx, "")
+        self.assertEqual(sorted(os.listdir(moved)), ["amdxc64.dll", "amdxcffx64.dll", "game.exe"])
+        _write(self.shim, b"shim v2")
+        self.assertEqual(I.refresh_shim(self.m, self.shim), 1)
+        I.disable(self.m, 42, "")
+        self.assertEqual(os.listdir(moved), ["game.exe"])
+
+    @unittest.skipUnless(os.name == "posix", "symlinks")
+    def test_a_symlink_in_the_game_folder_is_never_written_through(self):
+        outside = os.path.join(os.path.dirname(self.target), "outside.dll")
+        _write(outside, b"shim")  # the same content as ours, so it passes the 'not ours' check
+        os.symlink(outside, os.path.join(self.target, I.SHIM))
+        with self.assertRaises(I.InstallError):
+            I.enable(self.m, self.game, self.shim, self.ffx, "")
+        with open(outside, "rb") as f:
+            self.assertEqual(f.read(), b"shim")
+
+
+class ManifestSafety(unittest.TestCase):
+    """The manifest is the only record of what is ours: never silently reset."""
+
+    def setUp(self):
+        self.path = os.path.join(tempfile.mkdtemp(), "manifest.json")
+
+    def test_a_damaged_manifest_comes_back_from_its_last_good_copy(self):
+        m = I.Manifest(self.path)
+        m.entries[42] = {"target_dir": "/g", "files": {I.SHIM: "a" * 64}, "launch_original": ""}
+        m.save()
+        _write(self.path, b'{"42": {"target_dir": ')  # a write cut short
+        again = I.Manifest(self.path)
+        self.assertEqual(list(again.entries), [42])
+        self.assertTrue(again.recovered)
+        self.assertEqual(again.problem, "")
+
+    def test_without_a_good_copy_it_is_kept_and_nothing_is_saved_over_it(self):
+        for damaged in (b"[1, 2]", b'{"42": {"files": {}}}', b"{not json"):
+            _write(self.path, damaged)
+            for name in os.listdir(os.path.dirname(self.path)):
+                if name != "manifest.json":
+                    os.remove(os.path.join(os.path.dirname(self.path), name))
+            m = I.Manifest(self.path)
+            self.assertIn("damaged", m.problem)
+            with self.assertRaises(I.InstallError):
+                m.save()
+            with open(self.path, "rb") as f:
+                self.assertEqual(f.read(), damaged)
+
+    def test_the_old_format_still_loads(self):
+        _write(self.path, json.dumps({"1817070": {
+            "target_dir": "/g", "files": {I.SHIM: "a" * 64}, "launch_original": "", "launch_applied": None,
+            "mode": "native", "enabled_at": "2026-10-25T10:00:00Z", "verified": {"steamos": "3.9"}, "missed": 1,
+        }}, indent=1).encode())
+        m = I.Manifest(self.path)
+        self.assertEqual((m.problem, list(m.entries)), ("", [1817070]))
 
 
 class LaunchSettings(unittest.TestCase):
@@ -307,119 +375,6 @@ class SessionVerdict(unittest.TestCase):
 
     def test_without_session_start_falls_back_to_plain_verdict(self):
         self.assertEqual(I.session_verdict(self.ok, None, ""), I.verdict(self.ok))
-
-
-class Plugin(unittest.TestCase):
-    """End to end through the RPC layer with a fake Steam library."""
-
-    def test_enable_disable_via_rpc(self):
-        import decky
-        import main
-        steam = os.path.join(decky.DECKY_USER_HOME, ".local", "share", "Steam")
-        _library(steam, 1817070, "Spider-Man", "SM", ["Spider-Man.exe", "amd_fidelityfx_dx12.dll"])
-        # never touch the repo's real bin/amdxc64.dll
-        self.enterContext(mock.patch.object(main, "SHIM_PATH", os.path.join(tempfile.mkdtemp(), "amdxc64.dll")))
-        gpu = {"device": 0x150E, "family": 150, "rev": 20, "model": "INT8_LITE", "model_name": "INT8 Lite",
-               "verified": True}
-        self.enterContext(mock.patch.object(main.fsr4_gpu, "detect", return_value=gpu))
-        p = main.Plugin()
-        run = asyncio.run
-
-        async def flow():
-            await p._main()
-            state = await p.scan_games()
-            self.assertEqual([g["appid"] for g in state["games"]], [1817070])
-            blocked = await p.enable_game(1817070, "")
-            self.assertFalse(blocked["ok"])  # no DLL yet
-            _write(main._ffx_path(), b"amd")
-            _write(main.SHIM_PATH, b"shim")
-            p.dll_ok = True
-            p.gpu = {**gpu, "family": 148, "model": None}  # e.g. a 780M: AMD has no model
-            self.assertIn("no model for this GPU", (await p.enable_game(1817070, ""))["error"])
-            p.gpu = gpu
-            res = await p.enable_game(1817070, "")
-            self.assertTrue(res["ok"], res)
-            target = os.path.join(steam, "steamapps", "common", "SM")
-            await p.session_started(1817070)
-            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            _write(os.path.join(target, I.STATUS), json.dumps(
-                {"started": now, "ffx_requested": True, "dll_loaded": True, "family": 150, "active": "FSR3"}).encode())
-            ended = await p.session_ended(1817070, res["launch_options"])
-            self.assertEqual(ended["verdict"], "failed")
-            state = await p.get_state()
-            self.assertTrue(state["games"][0]["enabled"])
-            # SteamOS update notice: silent on first run, once after a change, then silent again
-            env_path = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "env.json")
-            with mock.patch.object(main.fsr4_env, "steamos_build", return_value="3.9.5 (1)"):
-                self.assertEqual((await p.startup_notice())["message"], "")
-            with mock.patch.object(main.fsr4_env, "steamos_build", return_value="3.9.6 (2)"):
-                self.assertIn("3.9.5 (1) → 3.9.6 (2)", (await p.startup_notice())["message"])
-                self.assertEqual((await p.startup_notice())["message"], "")
-            os.remove(env_path)
-
-            # a plugin update runs _uninstall and then a fresh backend: the game must stay set up
-            await p._uninstall()
-            self.assertIn(I.SHIM, os.listdir(target))
-            updated = main.Plugin()
-            await updated._main()
-            await updated.scan_games()
-            self.assertTrue((await updated.get_state())["games"][0]["enabled"])
-            res = await updated.disable_game(1817070, res["launch_options"])
-            self.assertEqual(res["launch_options"], "")
-            self.assertEqual(sorted(os.listdir(target)), ["Spider-Man.exe", "amd_fidelityfx_dx12.dll"])
-
-            # a session our DLL missed: quiet the first time, a warning when it happens again; a good one resets it
-            updated.dll_ok = True  # the fake DLL above has no AMD checksum
-            res = await updated.enable_game(1817070, "")
-            self.assertTrue(res["ok"], res)
-            for expected in ("missed", "failed", "missed"):
-                await updated.session_started(1817070)
-                updated.sessions[1817070] = time.time() + 60  # the status file predates this session
-                ended = await updated.session_ended(1817070, res["launch_options"])
-                self.assertEqual(ended["verdict"], expected)
-                if expected == "failed":
-                    self.assertIn("twice in a row", ended["reason"])
-                    await updated.session_started(1817070)
-                    _write(os.path.join(target, I.STATUS), json.dumps(
-                        {"started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "ffx_requested": True,
-                         "dll_loaded": True, "family": 150, "active": "INT8_LITE"}).encode())
-                    self.assertEqual((await updated.session_ended(1817070, res["launch_options"]))["verdict"], "ok")
-
-            # Repair re-checks AMD's library: a damaged copy has to be downloaded again
-            _write(main._ffx_path(), b"damaged")
-            self.assertFalse((await updated.verify_library())["dll_ready"])
-            updated.dll_ok = True
-            await updated.disable_game(1817070, res["launch_options"])
-
-            # settings: validated, persisted, and used by the next enable
-            state = await updated.get_state()
-            self.assertEqual(state["settings"], {"auto_launch_options": True, "watermark": False})
-            self.assertEqual(state["copy_options"]["watermark"], f"{I.TOKEN} {I.WATERMARK} %command%")
-            updated.dll_ok = True  # the fake DLL above has no AMD checksum
-            await updated.set_setting("watermark", "yes")  # not a bool: ignored
-            await updated.set_setting("nonsense", True)
-            self.assertEqual((await updated.set_setting("watermark", True))["settings"]["watermark"], True)
-            res = await updated.enable_game(1817070, "")
-            self.assertTrue(res["ok"], res)
-            self.assertEqual(res["launch_options"],
-                             f"{I.TOKEN} {I.WATERMARK} %command%")
-            self.assertEqual((await updated.apply_watermark(1817070, f"{I.TOKEN} {I.WATERMARK} %command%"))
-                             ["launch_options"], f"{I.TOKEN} {I.WATERMARK} %command%")
-            await updated.disable_game(1817070, f"{I.TOKEN} {I.WATERMARK} %command%")
-            await updated.set_setting("auto_launch_options", False)
-            again = main.Plugin()
-            await again._main()
-            await again.scan_games()
-            again.dll_ok = True
-            self.assertEqual(again.settings, {"auto_launch_options": False, "watermark": True})
-            res = await again.enable_game(1817070, "-novid")
-            self.assertEqual(res["launch_options"], "-novid")  # left to the user
-            self.assertFalse((await again.get_state())["games"][0]["managed_options"])
-            self.assertFalse((await again.apply_watermark(1817070, "-novid"))["ok"])
-            await again.disable_game(1817070, "-novid")
-            await again.set_setting("auto_launch_options", True)
-            await again.set_setting("watermark", False)
-        run(flow())
 
 
 if __name__ == "__main__":

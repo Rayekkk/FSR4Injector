@@ -14,9 +14,11 @@
   const before = await read();
   await api.call("scan_games");
   const res = await api.call(on ? "enable_game" : "disable_game", appid, before);
-  if (res.ok && res.launch_options !== undefined && res.launch_options !== before)
+  let saved = null;
+  if (res.ok && res.launch_options !== undefined && res.launch_options !== before) {
     SteamClient.Apps.SetAppLaunchOptions(appid, res.launch_options);
-  await new Promise(r => setTimeout(r, 500));
+    saved = await api.call("launch_options_saved", appid, await read());
+  }
   const after = await read();
-  return JSON.stringify({ before, res, after });
+  return JSON.stringify({ before, ok: res.ok, error: res.error, launch_options: res.launch_options, saved, after });
 })()

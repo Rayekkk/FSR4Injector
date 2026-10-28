@@ -1,6 +1,19 @@
+# Shared from DeckyKit (shared/ci/checks.yml): change it there, then `kit sync`. A plugin's own extra jobs go in
+# a separate workflow file next to this one.
+# Sources: DeckyLS/FSR4Injector checks.yml (pinned actions, read-only token, matrix, -W error), DeckyVibranceHDR
+# (compileall, tag gate, Python 3.10), LegionGo2Companion/Ayaneo3Companion (independent read-back
+# of the ZIP, the plugin's own ZIP check), LegionGo2Companion/Ayaneo3Companion/DeckyEQ (ZIP + .sha256 kept).
+# Guarantees: every action pinned by commit SHA; the token can only read; no credentials kept in the checkout;
+# every backend module compiles without warnings and the tests pass with warnings as errors on each Python version
+# the plugin supports (package.json "decky.python", default 3.14) and on Windows; locked dependencies
+# installed without their install scripts (esbuild's binary rebuilt where Vitest needs it: DeckyEQ); an advisory of
+# moderate severity or above fails; the ZIP is built and checked by
+# scripts/package.mjs (tag = version on tag builds), read back by Python's zipfile (what Decky installs with), checked
+# by the plugin's scripts/verify-package.py when there is one, and kept as a build artifact. A plugin with native
+# code the package needs (LegionGo2Companion's Qt Desktop app in dist/desktop) builds and tests it in its own
+# scripts/ci-native.sh, run before the frontend build; the job then allows 30 minutes.
+# Deliberately not here: publishing releases (made by hand after testing on hardware), plugin-specific jobs.
 name: Quality checks
-
-# Tests only. Releases are made by hand from a tag.
 
 on:
   push:
@@ -15,20 +28,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  versions:
+    name: Supported Python versions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      python: ${{ steps.read.outputs.python }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: read
+        # Decky 3.3.1+ (the minimum we support) and SteamOS run Python 3.14 (STANDARD §4)
+        run: echo "python=$(jq -c '.decky.python // ["3.14"]' package.json)" >> "$GITHUB_OUTPUT"
+
   backend:
     name: Backend (${{ matrix.os }}, Python ${{ matrix.python }})
+    needs: versions
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-24.04]
+        python: ${{ fromJSON(needs.versions.outputs.python) }}
         include:
-          - os: ubuntu-24.04
-            python: '3.11'  # Decky Loader's own interpreter
-          - os: ubuntu-24.04
-            python: '3.14'
           - os: windows-2022
-            python: '3.13'
+            python: '3.14'
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PYTHONUTF8: '1'
@@ -39,13 +65,15 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
+      - name: Compile backend modules
+        run: python -W error -m compileall -q -x "[\\/](node_modules|dist|build|artifacts|\.git)[\\/]" .
       - name: Run backend tests
-        run: python -W error -m unittest discover -s tests -p "test_*.py" -v
+        run: python -W error -m unittest discover -s tests -p "test_*.py"
 
   frontend-package:
     name: Frontend and package (Node.js 24)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 30  # 10 without scripts/ci-native.sh; a Qt build with two Qt versions takes ~20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -54,34 +82,49 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
       - name: Install locked frontend dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install esbuild's binary for Vitest
+        if: hashFiles('vitest.config.*') != ''
+        run: npm rebuild esbuild
       - name: Check frontend types
         run: npm run typecheck
       - name: Check dependency advisories
-        run: npm audit --audit-level=high
+        # moderate, not low: deepmerge (GHSA-gcqx-w48m-w2h4, low) comes in through @rollup/plugin-node-resolve 16 and
+        # has no fixed version yet; back to --audit-level=low once a fixed deepmerge is published.
+        run: npm audit --audit-level=moderate
       - name: Run frontend regression tests
         run: npm run test:frontend
+      - name: Plugin's own native build (scripts/ci-native.sh, when the plugin has one)
+        if: hashFiles('scripts/ci-native.sh') != ''
+        run: bash scripts/ci-native.sh
       - name: Build frontend
         run: npm run build
-      - name: Build package (checks required files and that no AMD file is inside)
+      - name: Build package (versions, required and forbidden files, ZIP read back, .sha256)
         run: npm run package
-
-  shim:
-    name: Shim builds with MinGW-w64
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install MinGW-w64
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
-      # The self-test needs AMD's DLL, which may not be redistributed, so CI only checks that the shim compiles
-      # cleanly and exports what amdxc64 must export.
-      - name: Compile shim and self-test
-        run: CFLAGS_EXTRA=-Werror bash shim/build.sh
-      - name: Check exports
+      - name: Read the ZIP back with Python's zipfile
+        shell: python
         run: |
-          x86_64-w64-mingw32-objdump -p shim/build/amdxc64.dll | tee exports.txt | grep -q AmdExtD3DCreateInterface
-          grep -q AmdGetDxcModuleHandle exports.txt
+          import glob, hashlib, json, zipfile
+          folder = json.load(open("package.json")).get("decky", {}).get("folder") or json.load(open("plugin.json"))["name"]
+          (path,) = glob.glob("artifacts/*.zip")
+          with zipfile.ZipFile(path) as z:
+              assert z.testzip() is None, "CRC error"
+              names = z.namelist()
+              assert all(n.startswith(folder + "/") and ".." not in n.split("/") for n in names), names
+          digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
+          assert open(path + ".sha256").read().split()[0] == digest, ".sha256 does not match"
+      - name: Plugin's own ZIP check
+        if: hashFiles('scripts/verify-package.py') != ''
+        run: python scripts/verify-package.py
+      - name: Keep the package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: package
+          path: |
+            artifacts/*.zip
+            artifacts/*.zip.sha256
+          if-no-files-found: error

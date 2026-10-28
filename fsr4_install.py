@@ -16,10 +16,11 @@ import hashlib
 import json
 import os
 import re
-import shutil
+import secrets
 import time
 
-from fsr4_dll import sha256_file
+import dk_fs
+from dk_fs import sha256_file
 
 SHIM = "amdxc64.dll"
 FFX = "amdxcffx64.dll"
@@ -42,22 +43,42 @@ class InstallError(Exception):
     pass
 
 
+def _check_manifest(data):
+    """dk_fs's validate hook: app id -> an entry with the fields everything here relies on."""
+    dk_fs.require_object(data)
+    for appid, e in data.items():
+        if (not appid.isdigit() or not isinstance(e, dict) or not isinstance(e.get("target_dir"), str)
+                or not isinstance(e.get("files"), dict)
+                or not all(isinstance(k, str) and isinstance(v, str) for k, v in e["files"].items())
+                or not isinstance(e.get("launch_original", ""), str)
+                or not isinstance(e.get("launch_applied") or "", str)):
+            raise ValueError(f"entry {appid!r} is not a game set up by this plugin")
+
+
 class Manifest:
-    """appid -> {target_dir, files: {name: sha256}, launch_original, launch_applied, enabled_at}"""
+    """appid -> {target_dir, files: {name: sha256}, launch_original, launch_applied, enabled_at, verified, missed}
+
+    It is the only record of what the plugin put into game folders. A damaged file comes back from its last-good
+    copy; when that is impossible (or the file cannot be read) `problem` says why and nothing is saved over it, so
+    the record is never lost to a later change."""
 
     def __init__(self, path):
-        self.path = path
+        self.path, self.entries, self.problem, self.recovered = path, {}, "", ""
         try:
-            with open(path, encoding="utf-8") as f:
-                self.entries = {int(k): v for k, v in json.load(f).items()}
-        except (OSError, ValueError):
-            self.entries = {}
+            loaded = dk_fs.load_json(path, {}, validate=_check_manifest)
+        except OSError as e:
+            self.problem = f"The list of games set up could not be read ({e.strerror or type(e).__name__})."
+            return
+        if loaded.status == "lost":
+            self.problem = ("The list of games set up is damaged, so no game can be changed. It is kept as it is; "
+                            "the Decky log has the details.")
+        self.recovered = loaded.detail if loaded.status in ("lost", "recovered") else ""
+        self.entries = {int(k): v for k, v in loaded.value.items()}
 
     def save(self):
-        tmp = self.path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({str(k): v for k, v in self.entries.items()}, f, indent=1)
-        os.replace(tmp, self.path)
+        if self.problem:
+            raise InstallError(self.problem)
+        dk_fs.write_json(self.path, {str(k): v for k, v in self.entries.items()})
 
 
 def _override_entries(word):
@@ -142,40 +163,37 @@ def without_token(current, original, applied):
     return " ".join(words)
 
 
-def _replace_via_tmp(dst, fill):
-    """Write through a temp file, so a failed copy (a full SD card) never leaves half a DLL or the temp file."""
-    tmp = dst + ".fsr4i-tmp"
-    try:
-        fill(tmp)
-        os.replace(tmp, dst)
-    except OSError:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
-        raise
+# Game files: never written through a symlink (dk_fs's no_links), and a failed copy (a full SD card) leaves neither
+# half a DLL nor its temp file. The game folder itself may be a link (a game moved to another drive), so it is
+# resolved first; no_links alone would refuse it.
+
+def _real(dst):
+    return os.path.join(os.path.realpath(os.path.dirname(dst)), os.path.basename(dst))
 
 
 def _copy(src, dst):
-    _replace_via_tmp(dst, lambda tmp: shutil.copyfile(src, tmp))
+    with open(src, "rb") as f:
+        dk_fs.write_atomic(_real(dst), f, no_links=True)
 
 
 def _link_or_copy(src, dst):
     """A hard link to src where the file system allows it, so every game shares one 82 MB copy of AMD's library;
-    a copy on another drive (an SD card), on FAT/exFAT or where links are refused."""
-    def fill(tmp):
-        try:
-            os.link(src, tmp)
-        except OSError:
-            shutil.copyfile(src, tmp)
-    _replace_via_tmp(dst, fill)
+    a copy on another drive (an SD card), on FAT/exFAT or where links are refused. The link gets a fresh temp name
+    and is renamed into place (a rename replaces a symlink itself, never its target)."""
+    tmp = f"{dst}.{secrets.token_hex(6)}.fsr4i-tmp"
+    try:
+        os.link(src, tmp)
+    except OSError:
+        return _copy(src, dst)
+    try:
+        os.replace(tmp, dst)
+    except OSError:
+        os.remove(tmp)
+        raise
 
 
 def _write(dst, data):
-    def fill(tmp):
-        with open(tmp, "wb") as f:
-            f.write(data)
-    _replace_via_tmp(dst, fill)
+    dk_fs.write_atomic(_real(dst), data, no_links=True)
 
 
 def gpu_file_content(gpu):
@@ -215,20 +233,21 @@ def enable(manifest, game, shim_path, ffx_path, launch_options, gpu=None, launch
             entry["files"][name] = want[name]
             manifest.entries[appid] = entry  # recorded as soon as a file exists, so a crash can still be undone
             manifest.save()
+        if launch:
+            entry["launch_applied"] = new_options
+        entry["enabled_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        manifest.save()
+    except dk_fs.UnsafePath as e:
+        raise InstallError("a file the plugin writes is a link in the game folder; leaving it alone") from e
     except OSError as e:
-        raise InstallError(f"could not write to the game folder: {e}") from e
-
-    if launch:
-        entry["launch_applied"] = new_options
-    entry["enabled_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    manifest.save()
+        raise InstallError(f"could not write to the game folder ({e.strerror or type(e).__name__})") from e
     return new_options if launch else (launch_options or "").strip()
 
 
 def set_watermark(manifest, appid, current, on):
     """Add or take out FSR_WATERMARK=1 in a game whose launch options we manage; None when we do not."""
     entry = manifest.entries.get(appid)
-    if not entry or not entry.get("launch_applied"):
+    if not entry or entry.get("launch_applied") is None:  # None: the user manages them ("" is ours, emptied)
         return None
     if on:
         new = with_token(current, True)
@@ -288,7 +307,7 @@ def disable(manifest, appid, launch_options):
             os.remove(os.path.join(entry["target_dir"], name))
         except OSError:
             pass
-    if entry.get("launch_applied"):
+    if entry.get("launch_applied") is not None:
         restored = without_token(launch_options, entry.get("launch_original", ""), entry["launch_applied"])
     else:  # the user manages this game's launch options
         restored = (launch_options or "").strip()
@@ -306,7 +325,7 @@ def read_status(manifest, appid):
         # errors="replace": the Proton path in it comes from a Windows code page, not always valid UTF-8
         with open(os.path.join(entry["target_dir"], STATUS), encoding="utf-8", errors="replace") as f:
             status = json.load(f)
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return None
     return status if isinstance(status, dict) else None
 

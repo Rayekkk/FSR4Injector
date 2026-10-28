@@ -39,11 +39,16 @@ r.close()
 reset_abs = dll_off - local
 print(f'DLL found {local} bytes after reset; reset unpacked offset {reset_abs}; downloaded {len(comp)/2**20:.1f} MiB')
 
-# pass 2: decode the same bytes with BCJ x86 at the right stream position and check the hash
+# pass 2: decode the same bytes with BCJ x86 at the right stream position, in 4 KiB steps, until the DLL is complete:
+# that is the packed range the plugin downloads (fsr4_dll pins its size and SHA-256)
 d2 = lzma.LZMADecompressor(lzma.FORMAT_RAW, filters=[{'id': lzma.FILTER_X86, 'start_offset': reset_abs % 2**32}, LZ])
-out2 = d2.decompress(bytes(comp), max_length=local + dll_size)
-dll = out2[local:local + dll_size]
+out2 = bytearray(); packed = 0
+while len(out2) < local + dll_size:
+    if packed >= len(comp): sys.exit('downloaded data ended before the DLL was complete')
+    out2 += d2.decompress(bytes(comp[packed:packed + 4096])); packed = min(packed + 4096, len(comp))
+dll = bytes(out2[local:local + dll_size])
 sha = hashlib.sha256(dll).hexdigest()
 print('sha256', sha, 'OK' if sha == want_sha else 'MISMATCH')
-# packed bytes actually needed: re-run counting input until output covers the DLL
-print(f'RECIPE packed_offset={packed_start + reset_rel} unpacked_offset={reset_abs} dll_local={local} dll_size={dll_size} sha256={sha}')
+print(f'RECIPE packed_offset={packed_start + reset_rel} packed_size={packed} '
+      f'packed_sha256={hashlib.sha256(bytes(comp[:packed])).hexdigest()} unpacked_offset={reset_abs} '
+      f'dict_size={LZ["dict_size"]} dll_offset={local} dll_size={dll_size} sha256={sha}')

@@ -2,6 +2,26 @@
 
 All notable changes to FSR4 Injector, newest first.
 
+## [Unreleased]
+
+### Fixed
+
+- **AMD download:** an unexpected error no longer leaves the panel stuck on "Downloading from AMD";
+  you can try again at once. The download fetches exactly the part of AMD's package it needs (about
+  43 MB, which the progress now counts) and checks it before decoding; a slow connection gets up to
+  30 minutes, and Cancel stops the download at once.
+- **Launch options:** after turning a game on, the plugin checks what Steam actually kept. If Steam
+  did not keep the new launch options you are told, and turning FSR 4 off still restores your own
+  options exactly.
+- **Settings:** a switch that cannot be saved (for example on a full disk) stays as it was and says
+  why, instead of looking changed until the next restart.
+- **List of games set up:** a damaged list is restored from its backup copy. If that is impossible,
+  the panel says so and no game can be changed, instead of forgetting which files are the plugin's.
+- **Plugin updates:** "Check for updates" says when no release has been published yet instead of
+  "Up to date", and a second download at the same time is refused.
+- Files written to game folders and the plugin's settings are flushed to disk, so a power loss
+  cannot leave half a file, and error messages no longer show file paths.
+
 ## [1.0.1] - 2026-10-25
 
 ### Added

@@ -173,9 +173,10 @@ RDNA2 model on RX 6000, INT8 on RX 7000 and Strix Halo. Nothing on disk is patch
 signature stays intact.
 
 AMD's library is not part of the plugin. It ships only inside AMD's 1.7 GB Adrenalin installer,
-compressed in a few large LZMA2 blocks. The plugin downloads only the stretch that starts at a
-recorded restart point shortly before the DLL, decodes it on the fly and keeps the DLL only if
-its SHA-256 matches. `npm run package` refuses to build a ZIP that contains any AMD file.
+compressed in a few large LZMA2 blocks. The plugin downloads only the stretch (about 43 MB) from a
+recorded restart point shortly before the DLL to its end, checks that stretch against a recorded
+SHA-256, decodes it and keeps the DLL only if its SHA-256 matches too. `npm run package` refuses to
+build a ZIP that contains any AMD file.
 
 The shim writes `fsr4injector.status.json` next to the game: which model AMD's library
 accepted, the Proton it ran under and when. After each session the plugin compares it with the
@@ -203,7 +204,8 @@ npm run test:frontend  # panel regression tests
 npm run test:backend   # Python backend tests
 npm run build          # compile the frontend
 bash shim/build.sh path/to/amdxcffx64.dll  # build bin/amdxc64.dll and run its self-test
-npm run package        # create FSR4Injector-<version>.zip
+npm run package        # create artifacts/FSR4Injector-<version>.zip and its .sha256
+npm run check          # all of the above except the shim, in order
 ```
 
 Install the result through Decky's **Install Plugin from ZIP**. GitHub Actions runs the backend
@@ -237,23 +239,27 @@ AMD's licence. Not affiliated with AMD or Valve.
 
 ## AI disclaimer
 
-This project was built with substantial help from an AI coding assistant. The research, the
-shim, the plugin, the tests and this documentation were written by Anthropic's Claude Code
-working under my direction: I set the goal and the requirements (official AMD code only, no
-silent failures, a safe rollback, nothing redistributed that may not be), made the decisions
-and chose what was released.
+This project was built with substantial help from AI coding assistants. Most of the code,
+tests and documentation were written by AI agents (Anthropic's Claude Code) working under my
+direction: I defined what each feature should do, made the design and safety decisions,
+reviewed the results and chose what was released.
 
 The AI was used to:
 
-- find out why FSR 4 stays off on RDNA 3.5 under Proton, by reading Proton's and GE-Proton's
-  source and disassembling AMD's library;
-- port GE-Proton's `amdxc64` to a standalone DLL and add the GPU answer and the status file;
-- work out how to fetch AMD's library from AMD's own package without the full 1.7 GB download;
-- write the Decky plugin, its tests and this documentation.
+- port GE-Proton's `amdxc64` to a standalone shim and write the Python backend and the Decky panel;
+- build the automated test suites (about 190 tests run on Linux and Windows for every change);
+- audit the code for bugs, security issues and wasted work, with every finding checked by
+  independent review passes and, where possible, reproduced before it was fixed;
+- research why FSR 4 stays off on RDNA 3.5 under Proton (Proton's and GE-Proton's source, AMD's
+  library) and how to fetch AMD's library from AMD's own package without the full 1.7 GB
+  download, and write this documentation.
 
-Nothing here is untested AI output. Every step was tested on my Legion Go 2 in Gaming Mode:
-in Spider-Man Remastered, Spider-Man 2 and Clair Obscur: Expedition 33, on Proton 11 and Proton
-Experimental, with AMD's watermark, deliberate failures, plugin updates and rollbacks.
+Nothing here is untested AI output. I tested the plugin on my Legion Go 2 in Gaming Mode: in
+Spider-Man Remastered, Spider-Man 2 and Clair Obscur: Expedition 33, on Proton 11 and Proton
+Experimental, with AMD's watermark, deliberate failures, plugin updates and rollbacks. Features
+were held back until they behaved correctly on the real device, and a checked SHA-256 for AMD's
+library and every file placed in a game folder, an exact rollback of each game's files and launch
+options, and a warning whenever FSR 4 did not actually run were kept as hard requirements.
 
-FSR4 Injector places DLLs in your game folders. It is provided as is, without warranty (see
-[License](#license)); use it at your own risk.
+Even so, this plugin changes files in your game folders. It is provided as is, without warranty
+(see [License](#license)); use it at your own risk.

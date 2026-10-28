@@ -26,4 +26,4 @@ scenario A_normal "$PLUGIN"
 scenario B_token_removed "~/.dlo/run %command%"
 scenario C_dll_rejects "$PLUGIN FSR4I_FAMILY=1 FSR4I_REV=1"
 set_opts "$PLUGIN"
-~/fsr4test/fsr4call.sh get_state | python3 -c 'import json,sys; s=json.loads(json.loads(sys.stdin.read())); g=[g for g in s["games"] if g["appid"]==1817070][0]; print("panel view:", g["enabled"], g["verdict"], g["reason"])'
+~/fsr4test/fsr4call.sh get_state | python3 -c 'import json,sys; s=json.loads(json.loads(sys.stdin.read()))["state"]; g=[g for g in s["games"] if g["appid"]==1817070][0]; print("panel view:", g["enabled"], g["verdict"], g["reason"])'
