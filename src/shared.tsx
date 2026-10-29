@@ -26,7 +26,7 @@ export const VERDICT_LABEL: Record<Game["verdict"], string> = {
   unknown: "Not verified yet",
 };
 
-export const MiB = (b: number) => `${(b / 2 ** 20).toFixed(0)} MiB`;
+export const MB = (b: number) => `${(b / 2 ** 20).toFixed(0)} MB`;
 
 export const ANTICHEAT_WARNING = "Anti-cheat detected: adding DLLs to this game can get you kicked or banned in online play. " +
   "Turning FSR4 on is at your own risk.";

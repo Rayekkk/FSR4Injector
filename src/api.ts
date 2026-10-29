@@ -3,7 +3,8 @@
 
 // The backend's methods, typed, and Steam's launch options. Every call goes through settle(): it never rejects, a
 // dead backend is { ok: false, error } like any refusal (DeckyKit D2).
-import { callable, toaster } from "@decky/api";
+import { callable } from "@decky/api";
+import { UpdateCheck, UpdateDownload } from "./about";
 import { Result, settle } from "./result";
 
 export interface Game {
@@ -31,6 +32,7 @@ export interface Download { state: "idle" | "running" | "done" | "error"; done: 
 
 export interface State {
   version: string;
+  home: string;
   dll_ready: boolean;
   shim_ready: boolean;
   gpu: Gpu | null;
@@ -46,9 +48,6 @@ export interface State {
 
 export type StateResult = Result<State>;
 export type ToggleResult = StateResult & { launch_options?: string; kept?: string[] };
-export interface UpdateInfo extends Result<never> {
-  current_version?: string; latest_version?: string; update_available?: boolean; download_available?: boolean;
-}
 
 const rpc = <A extends unknown[], R extends Result<unknown>>(name: string) => {
   const call = callable<A, R>(name);
@@ -69,10 +68,8 @@ export const startupNotice = rpc<[], Result<never>>("startup_notice");
 export const setSetting = rpc<[string, boolean], StateResult>("set_setting");
 export const verifyLibrary = rpc<[], StateResult>("verify_library");
 export const applyWatermark = rpc<[number, string], Result<never> & { launch_options?: string }>("apply_watermark");
-export const checkForUpdates = rpc<[], UpdateInfo>("check_for_updates");
-export const performUpdate = rpc<[string], Result<never> & { path?: string; version?: string }>("perform_update");
-
-export const notify = (title: string, body: string) => toaster.toast({ title, body, duration: 6000 });
+export const checkForUpdates = rpc<[], UpdateCheck>("check_for_updates");
+export const performUpdate = rpc<[string], UpdateDownload>("perform_update");
 
 export const off = (u: SteamUnregister | undefined) => (typeof u === "function" ? u() : u?.unregister());
 

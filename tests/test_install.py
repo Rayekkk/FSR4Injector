@@ -198,8 +198,10 @@ class InstallRollback(unittest.TestCase):
     def test_partial_install_is_recorded_for_rollback(self):
         def flaky(src, dst):
             raise OSError(28, "disk full", dst)
-        with mock.patch.object(I, "_link_or_copy", flaky), self.assertRaisesRegex(I.InstallError, "disk full"):
-            I.enable(self.m, self.game, self.shim, self.ffx, "")
+        with mock.patch.object(I, "_link_or_copy", flaky):
+            with self.assertRaisesRegex(I.InstallError, "disk full") as caught:
+                I.enable(self.m, self.game, self.shim, self.ffx, "")
+        self.assertNotIn(self.target, str(caught.exception))
         self.assertEqual(list(I.Manifest(self.mpath).entries[42]["files"]), ["amdxc64.dll"])
         # a copy that fails half way leaves neither half a file nor a temp file behind
         before = self.files()
@@ -271,6 +273,12 @@ class ManifestSafety(unittest.TestCase):
                 m.save()
             with open(self.path, "rb") as f:
                 self.assertEqual(f.read(), damaged)
+
+    def test_an_unreadable_file_names_no_path(self):
+        with mock.patch("dk_fs.load_json", side_effect=PermissionError(13, "Permission denied", self.path)):
+            m = I.Manifest(self.path)
+        self.assertIn("Permission denied", m.problem)
+        self.assertNotIn(os.path.dirname(self.path), m.problem)
 
     def test_the_old_format_still_loads(self):
         _write(self.path, json.dumps({"1817070": {

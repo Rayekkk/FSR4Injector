@@ -112,4 +112,4 @@ def fetch(dest, recipe=RECIPE, progress=None, cancelled=None, spool=dk_net.spool
         try:
             dk_fs.write_atomic(dest, _Decoded(packed, recipe, lzma), 0o644)
         except OSError as e:
-            raise FetchError(f"the DLL could not be saved ({e.strerror or type(e).__name__})") from e
+            raise FetchError(f"the DLL could not be saved ({dk_fs.shown(e)})") from e

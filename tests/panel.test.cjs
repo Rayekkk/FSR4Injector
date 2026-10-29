@@ -9,7 +9,7 @@ const TOKEN = 'WINEDLLOVERRIDES=amdxc64=n,b';
 const game = { appid: 1817070, name: 'Spider-Man', target_dir: '/g', anticheat: false, enabled: false, verdict: 'unknown', reason: '' };
 const gpu890 = { device: 0x150e, family: 150, rev: 20, arch: 'RDNA 3.5', model: 'INT8_LITE', model_name: 'INT8 Lite', verified: true };
 const state = (over = {}) => ({
-  version: '1.0.0', dll_ready: true, shim_ready: true, gpu: gpu890, error: '',
+  version: '1.0.0', home: '/home/deck', dll_ready: true, shim_ready: true, gpu: gpu890, error: '',
   recipe: { driver: 'Adrenalin 26.10.1', fsr: '4.1.2', dll_size: 1 }, eula_url: 'https://x',
   download: { state: 'idle', done: 0, total: 1, error: '' }, scanned: true, games: [game],
   settings: { auto_launch_options: true, watermark: false },
@@ -65,12 +65,43 @@ test('opens with a spinner once, then renders the last state at once and refresh
   assert.match(text(tree), /Spider-Man/);
 });
 
-test('a backend that does not answer is a message, never an endless spinner', async () => {
+test('a backend that does not answer is a message with Try again, never an endless spinner; updates stay reachable', async () => {
   const h = panel();
   h.render();
   h.fail('get_state');
   await settle();
-  assert.equal(find(h.render(), 'Field', 'Backend unavailable').props.children, 'backend gone');
+  let tree = h.render();
+  assert.ok(findText(find(tree, 'Field', 'FSR4 Injector unavailable'), 'backend gone'));
+  assert.ok(button(tree, 'Check for updates'), 'a plugin that cannot start can still be updated');
+  assert.match(text(tree), /Installed version 0\.0\.0-test/);
+  button(tree, 'Try again').props.onClick();
+  await settle();
+  assert.ok(find(h.render(), 'Spinner'), 'trying again shows the spinner');
+  h.respond('get_state', ok(state()));
+  await settle();
+  tree = h.render();
+  assert.match(text(tree), /Spider-Man/);
+  assert.ok(!find(tree, 'Field', 'FSR4 Injector unavailable'));
+});
+
+test('a failed change says why under its control and in a toast, until its next outcome', async () => {
+  const h = panel();
+  toggleOf(await open(h), 'Spider-Man').props.onChange(true);
+  await settle();
+  h.respond('enable_game', { ok: false, error: 'A file in the game folder is not ours.', state: state() });
+  await settle();
+  assert.deepEqual([h.toasts.at(-1).title, h.toasts.at(-1).body], ['Spider-Man', 'A file in the game folder is not ours.']);
+  assert.ok(findText(toggleOf(h.render(), 'Spider-Man').props.description, 'is not ours'));
+  toggleOf(h.render(), 'Spider-Man').props.onChange(true);
+  await settle();
+  h.respond('enable_game', ok(state({ games: [{ ...game, enabled: true }] }), { launch_options: DLO }));
+  await settle();
+  assert.ok(!findText(toggleOf(h.render(), 'Spider-Man').props.description, 'is not ours'), 'a success clears it');
+  button(h.render(), 'Rescan library').props.onClick();
+  await settle();
+  h.respond('scan_games', { ok: false, error: 'Steam library not found.' });
+  await settle();
+  assert.ok(findText(button(h.render(), 'Rescan library').props.description, 'not found'));
 });
 
 test('a backend still scanning says so; Rescan gives feedback', async () => {
@@ -242,7 +273,7 @@ test('the AMD download polls only its progress and says why it failed', async ()
   const h = panel();
   button(await open(h, state({ dll_ready: false })), 'Accept and download').props.onClick();
   await settle();
-  assert.match(text(h.render()), /Downloading from AMD/);
+  assert.match(text(h.render()), /Downloading from AMD…/);
   const polls = h.calls.length;
   h.advance(500);
   await settle();
@@ -250,7 +281,7 @@ test('the AMD download polls only its progress and says why it failed', async ()
   assert.equal(h.calls.slice(polls).filter(c => c.name === 'get_state').length, 0, 'no full state while it runs');
   h.respond('download_progress', { ok: true, download: { state: 'running', done: 20 * 2 ** 20, total: 43 * 2 ** 20, error: '' }, dll_ready: false });
   await settle();
-  assert.equal(find(h.render(), 'Field', 'Downloading from AMD').props.children.join(''), '20 MiB / 43 MiB');
+  assert.equal(find(h.render(), 'Field', 'Downloading from AMD…').props.children.join(''), '20 MB / 43 MB');
   h.respond('download_dll', { ok: false, error: 'HTTP 503', state: state({ dll_ready: false, download: { state: 'error', done: 0, total: 1, error: 'HTTP 503' } }) });
   await settle();
   assert.deepEqual([h.toasts.at(-1).title, h.toasts.at(-1).body], ['FSR4 download failed', 'HTTP 503']);
@@ -283,32 +314,51 @@ test('a damaged manifest is shown and nothing can be turned on', async () => {
   assert.ok(!button(tree, 'Turn on FSR4 in all games'));
 });
 
-test('updates: check, download the verified ZIP, and show why not', async () => {
+test('About is the last row; its page has the plugin facts and updates at the bottom', async () => {
   const h = panel();
-  const tree = await open(h);
-  assert.match(text(tree), /FSR4 Injector · v1\.0\.0/);
+  let tree = await open(h);
+  assert.ok(!button(tree, 'Check for updates'), 'updates live on the About page');
+  const about = all(tree).filter(n => n.type === 'Field').at(-1);
+  assert.equal(about.props.label, 'About', 'About is the last row');
+  assert.ok(findText(about, 'Version 1.0.0 · updates'));
+  about.props.onActivate();
+  tree = h.render();
+  assert.match(text(tree), /Version 1\.0\.0 \| AMD's official FSR 4 upscaler/);
+  assert.ok(findText(find(tree, 'Field', 'Author'), 'Rayek · BSD-3-Clause · github.com/Rayekkk/FSR4Injector'));
+  assert.ok(!toggleOf(tree, 'Spider-Man'), 'the games stay on the main page');
+  assert.deepEqual(all(tree).filter(n => n.type === 'PanelSection').map(n => n.props.title), ['About', 'FSR4 Injector', 'Updates']);
+  assert.match(text(tree), /Installed version 1\.0\.0 \| Check for updates when you need them\./);
+
   button(tree, 'Check for updates').props.onClick();
   await settle();
-  assert.ok(button(h.render(), 'Checking…').props.disabled);
-  h.respond('check_for_updates', { ok: true, current_version: '1.0.0', latest_version: '1.1.0', update_available: true, download_available: true });
+  assert.ok(button(h.render(), 'Checking GitHub…').props.disabled);
+  h.respond('check_for_updates', { ok: true, current_version: '1.0.0', latest_version: '1.1.0', update_available: true,
+    download_available: true, size: 2 * 2 ** 20 });
   await settle();
-  button(h.render(), 'Download v1.1.0').props.onClick();
+  assert.match(text(h.render()), /Update available \| Version 1\.1\.0 \(2\.0 MB\)\./);
+  button(h.render(), 'Download 1.1.0').props.onClick();
   await settle();
   assert.deepEqual(h.respond('perform_update', { ok: true, path: '/home/deck/Downloads/FSR4Injector-1.1.0.zip', version: '1.1.0' }).args, ['1.1.0']);
   await settle();
-  assert.match(text(h.render()), /Update downloaded/);
+  assert.ok(find(h.render(), 'Field', '1.1.0 downloaded'));
+  assert.ok(findText(h.render(), '~/Downloads/FSR4Injector-1.1.0.zip'), 'the saved path is shown from the home folder');
+  assert.ok(findText(h.render(), 'Your games stay set up.'));
   button(h.render(), 'Check for updates').props.onClick();
   await settle();
   h.respond('check_for_updates', { ok: false, current_version: '1.0.0', update_available: false, error: "GitHub's request limit was reached. Try again later." });
   await settle();
-  assert.ok(findText(h.render(), 'request limit'), 'update errors are shown');
+  assert.ok(findText(find(h.render(), 'Field', 'Could not complete'), 'request limit'), 'update errors are shown');
+  assert.ok(find(h.render(), 'Field', '1.1.0 downloaded'), 'a failed check keeps the saved ZIP on screen');
   button(h.render(), 'Check for updates').props.onClick();
   await settle();
   h.respond('check_for_updates', { ok: true, current_version: '1.0.0', update_available: false, no_release: true,
     message: 'No release has been published yet (or the repository is private).' });
   await settle();
-  assert.ok(findText(h.render(), 'No release has been published yet'));
+  assert.ok(find(h.render(), 'Field', 'No public release yet'));
   assert.ok(!findText(h.render(), 'Up to date'));
+
+  button(h.render(), 'FSR4 Injector').props.onClick();  // ‹ FSR4 Injector
+  assert.ok(toggleOf(h.render(), 'Spider-Man'), 'back on the main page');
 });
 
 test('GPU line: verified, beta, and a GPU AMD has no model for', async () => {
@@ -318,7 +368,7 @@ test('GPU line: verified, beta, and a GPU AMD has no model for', async () => {
   assert.doesNotMatch(text(tree), /Beta/);
   h = panel();
   tree = await open(h, state({ gpu: { ...gpu890, device: 0x163f, family: 144, rev: 1, arch: 'RDNA 2 APU (Van Gogh)', verified: false } }));
-  assert.match(text(tree), /Beta: not tested on this GPU yet/);
+  assert.match(text(tree), /Beta \| FSR 4 is not tested on this GPU yet\. Report problems on GitHub\./);
   h = panel();
   tree = await open(h, state({ gpu: { ...gpu890, device: 0x15bf, family: 148, arch: 'RDNA 3 APU', model: null, model_name: '' } }));
   assert.match(text(tree), /GPU not supported \| AMD's FSR 4 has no model for this GPU \(RDNA 3 APU, PCI 1002:15bf\)/);

@@ -3,8 +3,9 @@
 
 import { definePlugin } from "@decky/api";
 import { staticClasses } from "@decky/ui";
-import { notify, off, readLaunchOptions, sessionEnded, sessionStarted, startupNotice } from "./api";
-import { Content } from "./panel";
+import { off, readLaunchOptions, sessionEnded, sessionStarted, startupNotice } from "./api";
+import { closeUpdates, Content } from "./panel";
+import { notify } from "./ui";
 
 // A "4" badge for FSR 4.
 const Fsr4Icon = () => (
@@ -40,6 +41,7 @@ export default definePlugin(() => {
     icon: <Fsr4Icon />,
     onDismount() {
       off(lifetime);
+      closeUpdates();
     },
   };
 });

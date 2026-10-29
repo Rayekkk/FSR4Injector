@@ -102,11 +102,13 @@ class Settings(PluginTest):
         self.assertEqual((await self.start()).settings, {"auto_launch_options": True, "watermark": True})
 
     async def test_a_setting_that_cannot_be_saved_changes_nothing(self):
-        with mock.patch.object(main.dk_fs, "write_json", side_effect=OSError(28, "No space left on device")):
+        full = OSError(28, "No space left on device", self.p.settings_path)
+        with mock.patch.object(main.dk_fs, "write_json", side_effect=full):
             with self.assertLogs(decky.logger, "ERROR"):
                 res = await self.p.set_setting("watermark", True)
         self.assertFalse(res["ok"])
         self.assertIn("No space left", res["error"])
+        self.assertNotIn(self.p.settings_path, res["error"])
         self.assertFalse(self.p.settings["watermark"], "memory changes only after the file is written")
         self.assertFalse(res["state"]["settings"]["watermark"])
 

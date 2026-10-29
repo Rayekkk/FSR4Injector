@@ -68,7 +68,7 @@ def _load_settings(path):
     try:
         saved = dk_fs.read_json(path, {}, validate=dk_fs.require_object)
     except OSError as e:
-        decky.logger.warning(f"settings could not be read ({e.strerror or type(e).__name__}); using defaults")
+        decky.logger.warning(f"settings could not be read ({dk_fs.shown(e)}); using defaults")
         saved = {}
     return {k: saved[k] if isinstance(saved.get(k), bool) else v for k, v in DEFAULT_SETTINGS.items()}
 
@@ -132,6 +132,7 @@ class Plugin:
                            for a, e in entries.items() if a not in known]
         return {
             "version": VERSION,
+            "home": _home(),  # the About page shows a saved update as ~/…
             "dll_ready": self.dll_ok,
             "shim_ready": os.path.isfile(SHIM_PATH),
             "gpu": self.gpu,
@@ -164,7 +165,7 @@ class Plugin:
                 await asyncio.to_thread(dk_fs.write_json, self.settings_path, new)
             except OSError as e:  # the switch stays as it was, in memory too
                 decky.logger.error(f"settings not saved: {e}")
-                return dk_rpc.fail(f"The setting could not be saved ({e.strerror or type(e).__name__}).",
+                return dk_rpc.fail(f"The setting could not be saved ({dk_fs.shown(e)}).",
                                    await self._state())
             self.settings = new
         decky.logger.info(f"setting {key} = {value}")

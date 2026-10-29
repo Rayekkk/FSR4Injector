@@ -67,7 +67,7 @@ class Manifest:
         try:
             loaded = dk_fs.load_json(path, {}, validate=_check_manifest)
         except OSError as e:
-            self.problem = f"The list of games set up could not be read ({e.strerror or type(e).__name__})."
+            self.problem = f"The list of games set up could not be read ({dk_fs.shown(e)})."
             return
         if loaded.status == "lost":
             self.problem = ("The list of games set up is damaged, so no game can be changed. It is kept as it is; "
@@ -240,7 +240,7 @@ def enable(manifest, game, shim_path, ffx_path, launch_options, gpu=None, launch
     except dk_fs.UnsafePath as e:
         raise InstallError("a file the plugin writes is a link in the game folder; leaving it alone") from e
     except OSError as e:
-        raise InstallError(f"could not write to the game folder ({e.strerror or type(e).__name__})") from e
+        raise InstallError(f"could not write to the game folder ({dk_fs.shown(e)})") from e
     return new_options if launch else (launch_options or "").strip()
 
 

@@ -4,6 +4,18 @@ All notable changes to FSR4 Injector, newest first.
 
 ## [Unreleased]
 
+### Changed
+
+- **Panel:** the About and Updates sections moved to an About page, opened from the last row of
+  the panel; Updates is at the bottom of that page. A downloaded update shows its folder as
+  `~/Downloads/…`, and the update texts match the other plugins (for example "Checking GitHub…").
+- **Panel:** when the plugin cannot start, the panel says "FSR4 Injector unavailable" with a Try
+  again button, and you can still check for updates below it.
+- **Panel:** when turning FSR 4 on or off, a setting or a rescan fails, the reason now also stays
+  under that control until it next succeeds, not only in a message.
+- **Panel:** an untested GPU gets its own "Beta" row; download sizes are in MB; an empty game list
+  says what to do.
+
 ### Fixed
 
 - **AMD download:** an unexpected error no longer leaves the panel stuck on "Downloading from AMD";
