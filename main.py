@@ -158,14 +158,16 @@ class Plugin:
     async def set_setting(self, key: str, value: bool) -> dict:
         if key not in DEFAULT_SETTINGS or not isinstance(value, bool):
             return dk_rpc.fail("Unknown setting.", await self._state())
-        new = {**self.settings, key: value}
-        try:
-            await asyncio.to_thread(dk_fs.write_json, self.settings_path, new)
-        except OSError as e:  # the switch stays as it was, in memory too
-            decky.logger.error(f"settings not saved: {e}")
-            return dk_rpc.fail(f"The setting could not be saved ({e.strerror or type(e).__name__}).",
-                               await self._state())
-        self.settings = new
+        async with self.lock:  # two quick changes would both start from the same old settings
+            new = {**self.settings, key: value}
+            try:
+                await asyncio.to_thread(dk_fs.write_json, self.settings_path, new)
+            except OSError as e:  # the switch stays as it was, in memory too
+                decky.logger.error(f"settings not saved: {e}")
+                return dk_rpc.fail(f"The setting could not be saved ({e.strerror or type(e).__name__}).",
+                                   await self._state())
+            self.settings = new
+        decky.logger.info(f"setting {key} = {value}")
         return dk_rpc.ok(await self._state())
 
     @rpc
@@ -177,6 +179,7 @@ class Plugin:
         if new is None:
             return dk_rpc.fail("FSR4 Injector does not manage this game's launch options.",
                                launch_options=launch_options)
+        decky.logger.info(f"watermark {'on' if self.settings['watermark'] else 'off'} for {appid}")
         return dk_rpc.ok(launch_options=new)
 
     @rpc
@@ -220,6 +223,7 @@ class Plugin:
             return dk_rpc.fail("The download is already running.", await self._state())
         self.download.update(state="running", done=0, total=fsr4_dll.RECIPE["packed_size"], error="")
         self._cancel = False
+        decky.logger.info("AMD FSR4 DLL download started")
 
         def progress(done, total):
             self.download.update(done=done, total=total)
@@ -253,6 +257,7 @@ class Plugin:
     @rpc
     async def cancel_download(self) -> dict:
         self._cancel = True
+        decky.logger.info("download cancel requested")
         return dk_rpc.ok(await self._state())
 
     @rpc

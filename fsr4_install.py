@@ -305,7 +305,7 @@ def disable(manifest, appid, launch_options):
     for name in (STATUS, STATUS + ".tmp"):  # written by the shim at runtime
         try:
             os.remove(os.path.join(entry["target_dir"], name))
-        except OSError:
+        except OSError:  # usually absent (the game never ran); a leftover status is harmless and never ours to keep
             pass
     if entry.get("launch_applied") is not None:
         restored = without_token(launch_options, entry.get("launch_original", ""), entry["launch_applied"])

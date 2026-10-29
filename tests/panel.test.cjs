@@ -224,6 +224,20 @@ test('launch options: automatic option, the watermark tied to it, copy buttons, 
   ]);
 });
 
+test('a game the watermark could not be changed in is named, not skipped silently', async () => {
+  const h = panel();
+  const games = [{ ...game, enabled: true, managed_options: true }];
+  const tree = await open(h, state({ games }));
+  toggleOf(tree, "Show AMD's FSR4 watermark").props.onChange(true);
+  await settle();
+  h.respond('set_setting', ok(state({ settings: { auto_launch_options: true, watermark: true }, games })));
+  await settle();
+  h.respond('apply_watermark', { ok: false, error: 'not managed', launch_options: DLO });
+  await settle();
+  assert.deepEqual([h.toasts.at(-1).title, h.toasts.at(-1).body], [game.name, 'not managed']);
+  assert.deepEqual(h.applied, [], 'launch options stay as they were');
+});
+
 test('the AMD download polls only its progress and says why it failed', async () => {
   const h = panel();
   button(await open(h, state({ dll_ready: false })), 'Accept and download').props.onClick();

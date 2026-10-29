@@ -4,6 +4,7 @@
 """The RPC layer end to end with a fake Steam library: the {ok, error?, state?} contract (DeckyKit D2), settings,
 downloads, sessions and launch options as the panel drives them."""
 
+import asyncio
 import json
 import os
 import tempfile
@@ -108,6 +109,12 @@ class Settings(PluginTest):
         self.assertIn("No space left", res["error"])
         self.assertFalse(self.p.settings["watermark"], "memory changes only after the file is written")
         self.assertFalse(res["state"]["settings"]["watermark"])
+
+    async def test_two_quick_changes_both_stick(self):
+        await asyncio.gather(self.p.set_setting("watermark", True), self.p.set_setting("auto_launch_options", False))
+        want = {"auto_launch_options": False, "watermark": True}
+        self.assertEqual(self.p.settings, want)
+        self.assertEqual((await self.start()).settings, want)
 
     async def test_a_damaged_settings_file_gives_the_defaults(self):
         _write(self.p.settings_path, b"{nope")

@@ -195,7 +195,7 @@ itself is not modified and nothing is installed system-wide.
 <details>
 <summary><b>Build, test and package from source</b></summary>
 
-Requires Node.js 24, Python 3.10 or newer and, for the shim, MinGW-w64 (x86_64).
+Requires Node.js 24, Python 3.14 and, for the shim, MinGW-w64 (x86_64).
 
 ```bash
 npm ci --ignore-scripts --no-audit --no-fund
@@ -247,7 +247,7 @@ reviewed the results and chose what was released.
 The AI was used to:
 
 - port GE-Proton's `amdxc64` to a standalone shim and write the Python backend and the Decky panel;
-- build the automated test suites (about 190 tests run on Linux and Windows for every change);
+- build the automated test suites (about 230 tests run on Linux and Windows for every change);
 - audit the code for bugs, security issues and wasted work, with every finding checked by
   independent review passes and, where possible, reproduced before it was fixed;
 - research why FSR 4 stays off on RDNA 3.5 under Proton (Proton's and GE-Proton's source, AMD's

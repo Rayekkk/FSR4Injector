@@ -11,6 +11,7 @@ import {
 import {
   ANTICHEAT_WARNING, copyText, hasLaunchOptionsPlugin, MiB, offerToLaunchOptionsPlugin, onlineStatus, VERDICT_LABEL,
 } from "./shared";
+import { errorText } from "./result";
 import { Updates } from "./updates";
 
 // The QAM remounts the panel on every open; keep the last state so it renders at once and refreshes underneath.
@@ -85,7 +86,7 @@ export const Content: FC = () => {
       if (res.kept?.length) notify(game.name, `Left files you changed in place: ${res.kept.join(", ")}`);
       return true;
     } catch (e) {
-      notify(game.name, String(e));
+      notify(game.name, errorText(e));
       return false;
     }
   };
@@ -148,12 +149,12 @@ export const Content: FC = () => {
       const next = take(await setSetting("watermark", on), "FSR4 Injector").state;
       for (const g of next?.games.filter(g => g.enabled && g.managed_options) ?? []) {
         const current = await readLaunchOptions(g.appid);
-        const res = await applyWatermark(g.appid, current);
+        const res = take(await applyWatermark(g.appid, current), g.name);
         if (res.ok && res.launch_options !== undefined && res.launch_options !== current)
           take(await saveLaunchOptions(g.appid, res.launch_options), g.name);
       }
     } catch (e) {
-      notify("FSR4 Injector", String(e));
+      notify("FSR4 Injector", errorText(e));
     }
     setBusy(null);
     refresh();

@@ -14,7 +14,10 @@ All notable changes to FSR4 Injector, newest first.
   did not keep the new launch options you are told, and turning FSR 4 off still restores your own
   options exactly.
 - **Settings:** a switch that cannot be saved (for example on a full disk) stays as it was and says
-  why, instead of looking changed until the next restart.
+  why, instead of looking changed until the next restart. Two switches changed in quick succession
+  are both kept; before, the second could undo the first.
+- **Watermark:** a game whose launch options could not be updated for the watermark is named in a
+  message instead of being skipped silently.
 - **List of games set up:** a damaged list is restored from its backup copy. If that is impossible,
   the panel says so and no game can be changed, instead of forgetting which files are the plugin's.
 - **Plugin updates:** "Check for updates" says when no release has been published yet instead of

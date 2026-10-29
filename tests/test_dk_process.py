@@ -21,8 +21,11 @@ def alive(pid):
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    with open(f"/proc/{pid}/stat") as f:
-        return f.read().split(") ", 1)[1][0] != "Z"
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().split(") ", 1)[1][0] != "Z"
+    except (FileNotFoundError, ProcessLookupError):  # the process exited between kill(0) and the read
+        return False
 
 
 class ProcessTest(unittest.TestCase):
