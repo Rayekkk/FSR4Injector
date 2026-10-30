@@ -5,12 +5,21 @@ All notable changes to FSR4 Injector, newest first.
 ## [Unreleased]
 
 ### ✨ Added
-- **Repair:** re-checks AMD's library and puts the plugin's files and launch option back in every game that has
+**Games**
+- Windows games added to Steam with "Add a Non-Steam Game" and run with Proton are found too, from the
+  folder of the shortcut's `.exe`. They have their own list, **Non-Steam games**, under **Steam games**.
+
+**Repair**
+- Re-checks AMD's library and puts the plugin's files and launch option back in every game that has
   FSR 4 on, for example after a game update or Steam's file check.
-- **Repair:** if AMD's library itself is damaged or missing, it tells you to download it again first.
-- **Decky Launch Options:** with [Decky Launch Options](https://github.com/Rayekkk/DeckyLaunchOptions) installed,
-  **Add to Decky Launch Options** offers the FSR4 launch option and AMD's watermark to it, to switch per game there.
-- **About:** **Use Rayek's store** makes Rayek's store Decky's store channel after you confirm, so Decky's Store
+- If AMD's library itself is damaged or missing, it tells you to download it again first.
+
+**Decky Launch Options**
+- With [Decky Launch Options](https://github.com/Rayekkk/DeckyLaunchOptions) installed, **Add to Decky
+  Launch Options** offers the FSR4 launch option and AMD's watermark to it, to switch per game there.
+
+**About**
+- **Use Rayek's store** makes Rayek's store Decky's store channel after you confirm, so Decky's Store
   tab lists Rayek's plugins and offers their updates.
 
 ### 🔧 Changed

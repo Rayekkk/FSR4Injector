@@ -54,6 +54,40 @@ class Discovery(unittest.TestCase):
         # Mass Effect's Vanguard class files are not Riot Vanguard
         self.assertFalse(games[1328670]["anticheat"])
 
+    def test_finds_windows_games_added_to_steam(self):
+        steam, drive = tempfile.mkdtemp(), tempfile.mkdtemp()
+        _library(steam, 1817070, "Spider-Man", "SM", ["Spider-Man.exe", "amd_fidelityfx_dx12.dll"])
+        for rel in ("Witcher/bin/witcher3.exe", "Witcher/bin/amd_fidelityfx_dx12.dll", "Old/old.exe",
+                    "Online/Online.exe", "Online/Bin/amd_fidelityfx_loader_dx12.dll", "Online/EasyAntiCheat/eac.dll"):
+            _write(os.path.join(drive, rel), b"x")
+
+        def entry(index, fields):
+            body = b"".join((b"\x02" + k.encode() + b"\0" + v.to_bytes(4, "little")) if isinstance(v, int)
+                            else (b"\x01" + k.encode() + b"\0" + v.encode() + b"\0") for k, v in fields.items())
+            return b"\x00" + str(index).encode() + b"\0" + body + b"\x00tags\0\x08\x08"
+
+        def shortcuts_vdf(user, *entries):
+            _write(os.path.join(steam, "userdata", user, "config", "shortcuts.vdf"),
+                   b"\x00shortcuts\0" + b"".join(entry(i, e) for i, e in enumerate(entries)) + b"\x08\x08")
+
+        exe = lambda rel: '"' + os.path.normpath(os.path.join(drive, rel)) + '"'
+        # Steam's shortcut ids have the top bit set; read as signed they would turn negative
+        shortcuts_vdf("1", {"appid": 3000000001, "AppName": "The Witcher 3", "Exe": exe("Witcher/bin/witcher3.exe")},
+                      {"appid": 3000000002, "appname": "Old", "exe": exe("Old/old.exe")},
+                      {"appid": 3000000003, "AppName": "Heroic", "Exe": '"/usr/bin/heroic"'},
+                      {"appid": 3000000004, "AppName": "Same files", "Exe": exe("Witcher/bin/witcher3.exe")},
+                      {"appid": 3000000005, "AppName": "Spider-Man copy",
+                       "Exe": '"' + os.path.join(steam, "steamapps", "common", "SM", "Spider-Man.exe") + '"'})
+        shortcuts_vdf("2", {"appid": 3000000006, "AppName": "", "Exe": exe("Online/Online.exe")})
+        _write(os.path.join(steam, "userdata", "3", "config", "shortcuts.vdf"), b"\x00shortcuts\0\x00broken")
+
+        games = {g["appid"]: g for g in fsr4_games.scan(steam)}
+        self.assertEqual(set(games), {1817070, 3000000001, 3000000006})
+        self.assertEqual(games[3000000001]["name"], "The Witcher 3")
+        self.assertEqual(games[3000000001]["target_dir"], os.path.join(drive, "Witcher", "bin"))
+        self.assertEqual(games[3000000006]["name"], "Online")
+        self.assertTrue(games[3000000006]["anticheat"])
+
 
 class LaunchOptions(unittest.TestCase):
     def test_round_trip(self):

@@ -11,7 +11,8 @@ import {
   getState, performUpdate, readLaunchOptions, saveLaunchOptions, scanGames, setSetting, State, StateResult, verifyLibrary,
 } from "./api";
 import {
-  ANTICHEAT_WARNING, copyText, hasLaunchOptionsPlugin, MB, offerToLaunchOptionsPlugin, onlineStatus, VERDICT_LABEL,
+  ANTICHEAT_WARNING, copyText, hasLaunchOptionsPlugin, isNonSteam, MB, offerToLaunchOptionsPlugin, onlineStatus,
+  VERDICT_LABEL,
 } from "./shared";
 import { errorText } from "./result";
 import { ActionButton, colors, infoRow, notify, PageHeader, SectionLink, statusPlaceholder } from "./ui";
@@ -214,6 +215,30 @@ export const Content: FC = () => {
   const gpu = state.gpu;
   const canEnable = state.dll_ready && state.shim_ready && !!gpu?.model && !state.error;
   const pci = gpu ? `1002:${gpu.device.toString(16).padStart(4, "0")}` : "";
+  // Steam and non-Steam games: the same section, one under the other.
+  const gameList = (title: string, games: Game[], hint: string) => (
+    <PanelSection title={title}>
+      {games.length === 0 && (!state.scanned || scanning ? infoRow("Scanning your library…")
+        : infoRow(`No compatible ${title.replace("Non-", "non-")} found`, hint))}
+      {games.map(g => (
+        <PanelSectionRow key={g.appid}>
+          <ToggleField
+            label={g.name}
+            description={<>
+              {g.enabled ? `${VERDICT_LABEL[g.verdict]}. ${g.reason}`
+                : !g.anticheat && onlineStatus(g.appid) === "online"
+                  ? "Online multiplayer: skipped by Turn on all. Turning it on is at your own risk." : null}
+              {g.anticheat && <div style={{ color: colors.error }}>{ANTICHEAT_WARNING}</div>}
+              {failure(failed[g.appid])}
+            </>}
+            checked={g.enabled}
+            disabled={busy !== null || (!g.enabled && !canEnable)}
+            onChange={on => toggle(g, on)}
+          />
+        </PanelSectionRow>
+      ))}
+    </PanelSection>
+  );
   return (
     <>
       <PanelSection title={`AMD FSR ${state.recipe.fsr}`}>
@@ -254,26 +279,12 @@ export const Content: FC = () => {
         {!state.shim_ready && infoRow("Plugin files incomplete", "bin/amdxc64.dll is missing. Reinstall the plugin.")}
       </PanelSection>
 
-      <PanelSection title="Games with FSR 3.1+">
-        {state.games.length === 0 && infoRow(!state.scanned || scanning ? "Scanning your library…"
-          : "No compatible games found", !state.scanned || scanning ? undefined : "Install a game with FSR 3.1 or newer, then rescan your library.")}
-        {state.games.map(g => (
-          <PanelSectionRow key={g.appid}>
-            <ToggleField
-              label={g.name}
-              description={<>
-                {g.enabled ? `${VERDICT_LABEL[g.verdict]}. ${g.reason}`
-                  : !g.anticheat && onlineStatus(g.appid) === "online"
-                    ? "Online multiplayer: skipped by Turn on all. Turning it on is at your own risk." : null}
-                {g.anticheat && <div style={{ color: colors.error }}>{ANTICHEAT_WARNING}</div>}
-                {failure(failed[g.appid])}
-              </>}
-              checked={g.enabled}
-              disabled={busy !== null || (!g.enabled && !canEnable)}
-              onChange={on => toggle(g, on)}
-            />
-          </PanelSectionRow>
-        ))}
+      {gameList("Steam games", state.games.filter(g => !isNonSteam(g)),
+        "Install a game with FSR 3.1 or newer, then rescan your library.")}
+      {gameList("Non-Steam games", state.games.filter(isNonSteam),
+        "Add a Windows game with FSR 3.1 or newer to Steam with Add a Non-Steam Game, then rescan your library.")}
+
+      <PanelSection title="All games">
         <PanelSectionRow>
           <ActionButton disabled={busy !== null || scanning} onClick={() => rescan(true)}
             description={scanning ? undefined : failure(failed.rescan) || scanResult || undefined}>
@@ -283,7 +294,7 @@ export const Content: FC = () => {
         {canEnable && state.games.some(g => !g.enabled && !g.anticheat) && (
           <PanelSectionRow>
             <ActionButton disabled={busy !== null} onClick={() => applyAll(true)}
-              description="Sets up every compatible game in the list. Online games and games with anti-cheat are skipped.">
+              description="Sets up every compatible game in both lists. Online games and games with anti-cheat are skipped.">
               {bulk?.kind === "on" ? `Turning on… ${bulk.text}` : "Turn on FSR4 in all games"}
             </ActionButton>
           </PanelSectionRow>

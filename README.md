@@ -27,7 +27,7 @@ that one missing answer and manages everything around it.
 | Feature | What you get |
 |---|---|
 | **One-tap setup** | Fetches AMD's FSR 4 library straight from AMD's servers (about 43 MB) and checks it |
-| **Per-game switch** | Lists your installed games that use FSR 3.1 or newer and turns FSR 4 on or off for each |
+| **Per-game switch** | Lists your installed games that use FSR 3.1 or newer, including Windows games added to Steam as non-Steam games, and turns FSR 4 on or off for each |
 | **All at once** | **Turn on FSR4 in all games** sets up every compatible offline game; **Turn off FSR4 and restore all games** puts every one back |
 | **Launch options your way** | Adds the one launch option it needs, or leaves launch options to you with ready-to-paste text; AMD's watermark on demand |
 | **Never fails silently** | After every session it checks that FSR 4 really ran, and tells you when it did not and why |
@@ -49,6 +49,11 @@ model 15.1 ms. One run per variant.
 | Games | DirectX 12 games that ship `amd_fidelityfx_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll` or `amd_fidelityfx_loader_dx12.dll` (FSR 3.1 or newer) |
 | Network | Once, to download AMD's library from `drivers.amd.com`; and when you check for plugin updates (GitHub) |
 
+A non-Steam game is found when its Steam shortcut starts the game's `.exe` and runs it with Proton;
+the plugin looks for the FidelityFX DLL in that `.exe`'s folder and below. Shortcuts that start a
+launcher such as Heroic or Lutris are not listed, and **Turn on FSR4 in all games** skips non-Steam
+games (Steam has no store categories for them), so turn them on one by one.
+
 FSR 2, FSR 3.0 and Vulkan games are not supported. The panel shows which model AMD's library
 will pick on your GPU; GPUs AMD has no model for, such as the Radeon 780M (Z1 Extreme), are
 refused.
@@ -59,7 +64,7 @@ Adding DLLs to a game's folder can get you kicked or banned in online games, so:
   PunkBuster, EQU8) get a red warning under their switch;
 - **Turn on FSR4 in all games** skips those games, games Steam lists as online (MMO,
   Cross-Platform Multiplayer, Online PvP or Online Co-op) and games Steam gives no categories
-  for. Online games are marked in the list.
+  for. Online games are marked in the lists.
 
 You can still turn any of them on one by one, at your own risk.
 
@@ -86,7 +91,7 @@ Open **About → Check for updates** at the bottom of the plugin. When a newer r
 publishes; install it the same way as above. Your games stay set up, and the plugin brings their
 copy of its DLL up to date at the next start.
 
-<a href="docs/screenshots/about.png"><img src="docs/screenshots/about.png" alt="About and Updates at the bottom of the plugin" width="360"></a>
+<a href="docs/screenshots/about.png"><img src="docs/screenshots/about.png" alt="The About page: version, Rayek's store and updates" width="360"></a>
 
 ### Uninstalling
 
@@ -104,7 +109,7 @@ launch options.
 1. Open **FSR4 Injector** and press **Accept and download**. This fetches the FSR 4 library from
    AMD's official Adrenalin 26.10.1 package and accepts the
    [AMD Software EULA](https://www.amd.com/en/legal/eula/amd-software-eula.html).
-2. Turn on a game under **Games with FSR 3.1+**.
+2. Turn on a game under **Steam games** or **Non-Steam games**.
 3. Start the game and choose **AMD FSR** as its upscaler.
 4. Quit the game. The panel shows **✓ FSR4 active**, or a notification tells you what went wrong.
 

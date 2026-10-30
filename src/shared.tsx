@@ -18,6 +18,9 @@ export const onlineStatus = (appid: number): "online" | "offline" | "unknown" =>
   }
 };
 
+// Steam gives games added with "Add a Non-Steam Game" app ids from 2^31 up; its own app ids are far below that.
+export const isNonSteam = (g: Game) => g.appid >= 2 ** 31;
+
 export const VERDICT_LABEL: Record<Game["verdict"], string> = {
   ok: "✓ FSR4 active",
   changed: "↻ Re-check needed",

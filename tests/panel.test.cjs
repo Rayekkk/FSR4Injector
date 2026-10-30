@@ -28,6 +28,8 @@ function panel() {
       SteamClient: {
         Apps: {
           RegisterForAppDetails(appid, fn) {
+            // a non-Steam shortcut reports its options from before the last write first, then the new ones
+            if (steam.stale?.[appid] !== undefined) Promise.resolve().then(() => fn({ strLaunchOptions: steam.stale[appid] }));
             Promise.resolve().then(() => fn({ strLaunchOptions: options[appid] ?? DLO }));
             return { unregister() {} };
           },
@@ -104,6 +106,27 @@ test('a failed change says why under its control and in a toast, until its next 
   assert.ok(findText(button(h.render(), 'Rescan library').props.description, 'not found'));
 });
 
+test('Steam and non-Steam games are two lists of the same rows, one under the other', async () => {
+  const h = panel();
+  const witcher = { ...game, appid: 3816576258, name: 'Witcher (GOG)' };
+  let tree = await open(h, state({ games: [game, witcher] }));
+  const sections = all(tree).filter(n => n.type === 'PanelSection').map(n => n.props.title);
+  assert.deepEqual(sections.slice(1, 4), ['Steam games', 'Non-Steam games', 'All games']);
+  const rowsOf = title => all(all(tree).find(n => n.type === 'PanelSection' && n.props.title === title))
+    .filter(n => n.type === 'ToggleField').map(n => n.props.label);
+  assert.deepEqual([rowsOf('Steam games'), rowsOf('Non-Steam games')], [['Spider-Man'], ['Witcher (GOG)']]);
+  toggleOf(tree, 'Witcher (GOG)').props.onChange(true);
+  await settle();
+  assert.deepEqual(h.respond('enable_game', ok(state({ games: [game, { ...witcher, enabled: true }] }),
+    { launch_options: `${TOKEN} ${DLO}` })).args, [3816576258, DLO]);
+  await settle();
+
+  // each list says what to do when it is empty
+  assert.ok(find(await open(panel(), state({ games: [witcher] })), 'Field', 'No compatible Steam games found'));
+  assert.ok(findText(find(await open(panel(), state({ games: [game] })), 'Field', 'No compatible non-Steam games found'),
+    'Add a Non-Steam Game'));
+});
+
 test('a backend still scanning says so; Rescan gives feedback', async () => {
   const h = panel();
   await open(h, state({ scanned: false, games: [] }));
@@ -137,15 +160,31 @@ test('a toggle applies what the backend computed and reports what Steam kept', a
   await settle();
   h.respond('disable_game', ok(state(), { launch_options: '-novid', kept: [] }));
   await settle();
+  h.advance(1000);  // the read-back waits a second for the written value before taking what Steam has
+  await settle();
   h.respond('launch_options_saved', { ok: true });
   await settle();
   toggleOf(h.render(), 'Spider-Man').props.onChange(true);
   await settle();
   h.respond('enable_game', ok(state(), { launch_options: `${TOKEN} -novid` }));
   await settle();
+  assert.ok(!pending(h, 'launch_options_saved'), 'Steam may still report the write; the read-back waits');
+  h.advance(1000);
+  await settle();
   assert.deepEqual(h.respond('launch_options_saved', { ok: false, error: 'Steam did not keep the new launch options' }).args[1], on);
   await settle();
   assert.equal(h.toasts.at(-1).body, 'Steam did not keep the new launch options');
+});
+
+test('a non-Steam shortcut reporting its old options first still reads back the saved ones', async () => {
+  const h = panel();
+  h.steam.stale = { 1817070: DLO };
+  toggleOf(await open(h), 'Spider-Man').props.onChange(true);
+  await settle();
+  const on = `${TOKEN} ${DLO}`;
+  h.respond('enable_game', ok(state({ games: [{ ...game, enabled: true }] }), { launch_options: on }));
+  await settle();
+  assert.deepEqual(h.respond('launch_options_saved', ok(state())).args, [1817070, on], 'no wait when the value arrives');
 });
 
 test('Turn on all skips anti-cheat, online and unknown games; Turn off all restores every game', async () => {

@@ -74,18 +74,25 @@ export const performUpdate = rpc<[string], UpdateDownload>("perform_update");
 export const off = (u: SteamUnregister | undefined) => (typeof u === "function" ? u() : u?.unregister());
 
 // Current launch options straight from Steam. Rejects instead of guessing, so the user's own options are never lost.
-export const readLaunchOptions = (appid: number) =>
+// Right after a write a non-Steam shortcut first reports its old options and the new ones a moment later, so a
+// read-back that expects a value waits up to a second for it, then takes what Steam said last.
+export const readLaunchOptions = (appid: number, expected?: string) =>
   new Promise<string>((resolve, reject) => {
-    let done = false;
-    const timer = setTimeout(() => {
-      if (!done) { done = true; off(reg); reject(new Error("Steam did not return the launch options")); }
-    }, 3000);
-    const reg = SteamClient.Apps.RegisterForAppDetails(appid, details => {
+    let done = false, last: string | undefined;
+    const finish = () => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       setTimeout(() => off(reg), 0);
-      resolve(details?.strLaunchOptions ?? "");
+      if (last === undefined) reject(new Error("Steam did not return the launch options"));
+      else resolve(last);
+    };
+    const timer = setTimeout(finish, 3000);
+    const reg = SteamClient.Apps.RegisterForAppDetails(appid, details => {
+      if (done) return;
+      last = details?.strLaunchOptions ?? "";
+      if (expected === undefined || last === expected) finish();
+      else setTimeout(finish, 1000);
     });
   });
 
@@ -93,5 +100,5 @@ export const readLaunchOptions = (appid: number) =>
 // restores the user's own options exactly (and a write Steam did not keep is reported, not assumed).
 export const saveLaunchOptions = async (appid: number, options: string) => {
   SteamClient.Apps.SetAppLaunchOptions(appid, options);
-  return launchOptionsSaved(appid, await readLaunchOptions(appid));
+  return launchOptionsSaved(appid, await readLaunchOptions(appid, options));
 };
