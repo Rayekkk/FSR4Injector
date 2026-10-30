@@ -4,6 +4,16 @@ All notable changes to FSR4 Injector, newest first.
 
 ## [Unreleased]
 
+### Added
+
+- **Repair FSR4 in all games:** re-checks AMD's library and puts the plugin's files and launch
+  option back in every game that has FSR 4 on, for example after a game update or Steam's file
+  check. If AMD's library itself is damaged or missing, it tells you to download it again first.
+
+- **Decky Launch Options integration:** with
+  [Decky Launch Options](https://github.com/Rayekkk/DeckyLaunchOptions) installed, **Add to Decky
+  Launch Options** offers the FSR4 launch option and AMD's watermark to it, to switch per game there.
+
 ### Changed
 
 - **Panel:** the About and Updates sections moved to an About page, opened from the last row of
@@ -15,6 +25,12 @@ All notable changes to FSR4 Injector, newest first.
   under that control until it next succeeds, not only in a message.
 - **Panel:** an untested GPU gets its own "Beta" row; download sizes are in MB; an empty game list
   says what to do.
+- Games that already set `WINEDLLOVERRIDES` (your own overrides, or another tool such as ReShade or
+  OptiScaler) no longer refuse FSR 4: the plugin adds `amdxc64=n,b` to that variable and takes only
+  its own entry out again when you turn FSR 4 off.
+- Games on the same drive share one copy of AMD's library instead of 82 MB each.
+- "DLL was not loaded" is shown only when it happens in two sessions in a row, so closing a game
+  in its launcher no longer raises a warning.
 
 ### Fixed
 
@@ -36,30 +52,6 @@ All notable changes to FSR4 Injector, newest first.
   "Up to date", and a second download at the same time is refused.
 - Files written to game folders and the plugin's settings are flushed to disk, so a power loss
   cannot leave half a file, and error messages no longer show file paths.
-
-## [1.0.1] - 2026-10-25
-
-### Added
-
-- **Repair FSR4 in all games:** re-checks AMD's library and puts the plugin's files and launch
-  option back in every game that has FSR 4 on, for example after a game update or Steam's file
-  check. If AMD's library itself is damaged or missing, it tells you to download it again first.
-
-- **Decky Launch Options integration:** with
-  [Decky Launch Options](https://github.com/Rayekkk/DeckyLaunchOptions) installed, **Add to Decky
-  Launch Options** offers the FSR4 launch option and AMD's watermark to it, to switch per game there.
-
-### Changed
-
-- Games that already set `WINEDLLOVERRIDES` (your own overrides, or another tool such as ReShade or
-  OptiScaler) no longer refuse FSR 4: the plugin adds `amdxc64=n,b` to that variable and takes only
-  its own entry out again when you turn FSR 4 off.
-- Games on the same drive share one copy of AMD's library instead of 82 MB each.
-- "DLL was not loaded" is shown only when it happens in two sessions in a row, so closing a game
-  in its launcher no longer raises a warning.
-
-### Fixed
-
 - Updates are saved to your Downloads folder as the desktop names it in your language (for
   example `~/Pobrane`), instead of always `~/Downloads`.
 - The plugin's status file is written as UTF-8 whatever the system language, so a Proton folder
