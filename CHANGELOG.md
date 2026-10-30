@@ -10,6 +10,8 @@ All notable changes to FSR4 Injector, newest first.
 - **Repair:** if AMD's library itself is damaged or missing, it tells you to download it again first.
 - **Decky Launch Options:** with [Decky Launch Options](https://github.com/Rayekkk/DeckyLaunchOptions) installed,
   **Add to Decky Launch Options** offers the FSR4 launch option and AMD's watermark to it, to switch per game there.
+- **About:** **Use Rayek's store** makes Rayek's store Decky's store channel after you confirm, so Decky's Store
+  tab lists Rayek's plugins and offers their updates.
 
 ### 🔧 Changed
 
