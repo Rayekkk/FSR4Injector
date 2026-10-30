@@ -2,7 +2,10 @@
 
 All notable changes to FSR4 Injector, newest first.
 
-## [Unreleased]
+## [1.1.0] - 2026-10-30
+
+Non-Steam games, a Repair button and an About page. Updating from 1.0.0 keeps your games set up: **Check
+for updates** downloads the new ZIP, which you install the same way as before.
 
 ### ✨ Added
 **Games**
