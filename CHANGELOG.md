@@ -11,6 +11,11 @@ A notification during the game when FSR 4 runs, as a lighter check than AMD's wa
   during the game as soon as AMD's library runs FSR 4, with its model. Problems are still told when the
   game ends.
 
+### 🐛 Fixed
+- **Games:** A game with its own non-Steam shortcut is no longer listed under its launcher's shortcut (for
+  example Ubisoft Connect, whose games sit in its folder), so FSR 4 works when you start the game's
+  shortcut. A launcher shortcut that already has FSR 4 on keeps its game until you turn it off.
+
 ## [1.1.0] - 2026-10-30
 
 Non-Steam games, a Repair button and an About page. Updating from 1.0.0 keeps your games set up: **Check

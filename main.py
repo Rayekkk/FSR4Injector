@@ -194,7 +194,7 @@ class Plugin:
 
     @rpc
     async def scan_games(self) -> dict:
-        self.games = await asyncio.to_thread(fsr4_games.scan, _steam_root())
+        self.games = await asyncio.to_thread(fsr4_games.scan, _steam_root(), set(self.manifest.entries))
         self.scanned = True
         return dk_rpc.ok(await self._state())
 

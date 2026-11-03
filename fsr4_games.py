@@ -102,8 +102,8 @@ def shortcuts(steam_root):
     return found
 
 
-def scan(steam_root):
-    """Installed games with an FFX API DLL, sorted by name."""
+def scan(steam_root, keep=()):
+    """Installed games with an FFX API DLL, sorted by name; keep: app ids with FSR 4 on."""
     games = []
     for lib in libraries(steam_root):
         apps = os.path.join(lib, "steamapps")
@@ -133,10 +133,13 @@ def scan(steam_root):
                               "install_dir": install_dir, "target_dir": target, "ffx_dll": ffx,
                               "anticheat": anticheat})
     # A shortcut is searched from its .exe's folder down. One game folder belongs to one entry: two app ids
-    # over the same files would undo each other's setup.
+    # over the same files would undo each other's setup. A shortcut with FSR 4 on (keep) holds its folder, else
+    # the one whose .exe is deepest, i.e. closest to the game: a launcher's shortcut (Ubisoft Connect, whose games
+    # sit below it) gets only games that have no shortcut of their own.
     seen = {os.path.realpath(g["target_dir"]) for g in games}
     ids = {g["appid"] for g in games}
-    for appid, title, exe in shortcuts(steam_root):
+    order = lambda s: (s[0] not in keep, -os.path.normpath(os.path.dirname(s[2])).count(os.sep))
+    for appid, title, exe in sorted(shortcuts(steam_root), key=order):
         install_dir = os.path.dirname(exe)
         if appid in ids or not os.path.isdir(install_dir):
             continue

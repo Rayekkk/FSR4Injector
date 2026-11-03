@@ -61,15 +61,7 @@ class Discovery(unittest.TestCase):
                     "Online/Online.exe", "Online/Bin/amd_fidelityfx_loader_dx12.dll", "Online/EasyAntiCheat/eac.dll"):
             _write(os.path.join(drive, rel), b"x")
 
-        def entry(index, fields):
-            body = b"".join((b"\x02" + k.encode() + b"\0" + v.to_bytes(4, "little")) if isinstance(v, int)
-                            else (b"\x01" + k.encode() + b"\0" + v.encode() + b"\0") for k, v in fields.items())
-            return b"\x00" + str(index).encode() + b"\0" + body + b"\x00tags\0\x08\x08"
-
-        def shortcuts_vdf(user, *entries):
-            _write(os.path.join(steam, "userdata", user, "config", "shortcuts.vdf"),
-                   b"\x00shortcuts\0" + b"".join(entry(i, e) for i, e in enumerate(entries)) + b"\x08\x08")
-
+        shortcuts_vdf = lambda user, *entries: _shortcuts_vdf(steam, user, *entries)
         exe = lambda rel: '"' + os.path.normpath(os.path.join(drive, rel)) + '"'
         # Steam's shortcut ids have the top bit set; read as signed they would turn negative
         shortcuts_vdf("1", {"appid": 3000000001, "AppName": "The Witcher 3", "Exe": exe("Witcher/bin/witcher3.exe")},
@@ -87,6 +79,32 @@ class Discovery(unittest.TestCase):
         self.assertEqual(games[3000000001]["target_dir"], os.path.join(drive, "Witcher", "bin"))
         self.assertEqual(games[3000000006]["name"], "Online")
         self.assertTrue(games[3000000006]["anticheat"])
+
+    def test_a_launchers_shortcut_leaves_a_game_to_the_games_own_shortcut(self):
+        # Ubisoft Connect keeps its games below itself: walking down from it finds them too
+        steam, drive = tempfile.mkdtemp(), tempfile.mkdtemp()
+        for rel in ("Ubisoft/UbisoftConnect.exe", "Ubisoft/games/ACS/ACShadows.exe",
+                    "Ubisoft/games/ACS/amd_fidelityfx_dx12.dll"):
+            _write(os.path.join(drive, rel), b"x")
+        exe = lambda rel: os.path.normpath(os.path.join(drive, rel))
+        _shortcuts_vdf(steam, "1",
+                       {"appid": 3000000001, "AppName": "Ubisoft Connect", "Exe": exe("Ubisoft/UbisoftConnect.exe")},
+                       {"appid": 3000000002, "AppName": "AC Shadows", "Exe": exe("Ubisoft/games/ACS/ACShadows.exe")})
+        self.assertEqual([g["appid"] for g in fsr4_games.scan(steam)], [3000000002])
+        # FSR 4 already on through the launcher's shortcut: it keeps the game, so it can still be turned off
+        self.assertEqual([g["appid"] for g in fsr4_games.scan(steam, {3000000001})], [3000000001])
+
+
+def _vdf_entry(index, fields):
+    body = b"".join((b"\x02" + k.encode() + b"\0" + v.to_bytes(4, "little")) if isinstance(v, int)
+                    else (b"\x01" + k.encode() + b"\0" + v.encode() + b"\0") for k, v in fields.items())
+    return b"\x00" + str(index).encode() + b"\0" + body + b"\x00tags\0\x08\x08"
+
+
+def _shortcuts_vdf(steam, user, *entries):
+    """A binary shortcuts.vdf for one Steam user, as Steam writes it."""
+    _write(os.path.join(steam, "userdata", user, "config", "shortcuts.vdf"),
+           b"\x00shortcuts\0" + b"".join(_vdf_entry(i, e) for i, e in enumerate(entries)) + b"\x08\x08")
 
 
 class LaunchOptions(unittest.TestCase):
