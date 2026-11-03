@@ -2,6 +2,15 @@
 
 All notable changes to FSR4 Injector, newest first.
 
+## [1.2.0] - 2026-11-03
+
+A notification during the game when FSR 4 runs, as a lighter check than AMD's watermark.
+
+### ✨ Added
+- **Status:** **Tell me when FSR4 runs** (under **All games**, off by default) shows a short notification
+  during the game as soon as AMD's library runs FSR 4, with its model. Problems are still told when the
+  game ends.
+
 ## [1.1.0] - 2026-10-30
 
 Non-Steam games, a Repair button and an About page. Updating from 1.0.0 keeps your games set up: **Check
