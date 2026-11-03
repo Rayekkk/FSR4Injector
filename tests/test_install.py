@@ -418,6 +418,15 @@ class SessionVerdict(unittest.TestCase):
     def test_without_session_start_falls_back_to_plain_verdict(self):
         self.assertEqual(I.session_verdict(self.ok, None, ""), I.verdict(self.ok))
 
+    def test_running_model_counts_only_success_written_in_this_session(self):
+        self.assertEqual(I.running_model({**self.ok, "provider": "4.1.2 *"}, self.start), "FSR 4.1.2 (INT8_LITE)")
+        self.assertIsNone(I.running_model({**self.ok, "started": "2026-10-24T19:00:00Z"}, self.start), "last session")
+        self.assertIsNone(I.running_model(self.ok, None), "no session start: freshness unknown")
+        self.assertIsNone(I.running_model(None, self.start))
+        self.assertIsNone(I.running_model({**self.ok, "active": "FSR3"}, self.start))
+        # mid-session states that read as failures are not told: FFX requested, its DLL not loaded yet
+        self.assertIsNone(I.running_model({**self.ok, "dll_loaded": False, "active": None}, self.start))
+
 
 if __name__ == "__main__":
     unittest.main()

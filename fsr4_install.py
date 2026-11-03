@@ -337,6 +337,26 @@ def _epoch(iso):
         return None
 
 
+def _written_since(status, session_start):
+    started = _epoch((status or {}).get("started"))
+    return started is not None and started >= session_start - 5  # shim clock has 1 s resolution
+
+
+def running_model(status, session_start):
+    """'FSR <version> (<model>)' once FSR 4 runs in the current session, else None.
+
+    Only success counts: mid-session a status passes through states that read as failures (FFX requested, its DLL
+    not loaded yet), so failures stay with session_verdict at the end. A status from an earlier session never counts.
+    """
+    if not session_start or not _written_since(status, session_start) or verdict(status)[0] != "ok":
+        return None
+    return _model(status)
+
+
+def _model(status):
+    return f"FSR {str(status.get('provider') or '').strip(' *') or '4'} ({status.get('active')})"
+
+
 def session_verdict(status, session_start, launch_options, managed=True):
     """verdict() for a session that just ended: a status not written during it means our DLL never loaded.
 
@@ -344,8 +364,7 @@ def session_verdict(status, session_start, launch_options, managed=True):
     "missed": not loaded although the token is there; often harmless (closed in a launcher, DirectX 11 mode), so the
     caller only warns when it happens again.
     """
-    started = _epoch((status or {}).get("started"))
-    if session_start and (started is None or started < session_start - 5):  # shim clock has 1 s resolution
+    if session_start and not _written_since(status, session_start):
         if not has_token(launch_options):
             if not managed:
                 return "failed", (f"FSR4 Injector was not loaded: add {TOKEN} in front of %command% in the game's "
@@ -365,7 +384,7 @@ def verdict(status):
         return "unused", "Pick AMD FSR as the upscaler in the game's graphics settings."
     active = status.get("active")
     if active in ("INT8_LITE", "INT8", "INT8_NAVI2", "FP8"):
-        return "ok", f"FSR {str(status.get('provider') or '').strip(' *') or '4'} ({active}) ran in the last session."
+        return "ok", f"{_model(status)} ran in the last session."
     if not status.get("dll_loaded"):
         return "failed", "The AMD FSR4 DLL did not load."
     if not status.get("family"):

@@ -12,7 +12,7 @@ const state = (over = {}) => ({
   version: '1.0.0', home: '/home/deck', dll_ready: true, shim_ready: true, gpu: gpu890, error: '',
   recipe: { driver: 'Adrenalin 26.10.1', fsr: '4.1.2', dll_size: 1 }, eula_url: 'https://x',
   download: { state: 'idle', done: 0, total: 1, error: '' }, scanned: true, games: [game],
-  settings: { auto_launch_options: true, watermark: false },
+  settings: { auto_launch_options: true, watermark: false, session_toast: false },
   copy_options: { plain: `${TOKEN} %command%`, watermark: `${TOKEN} FSR_WATERMARK=1 %command%` },
   ...over,
 });
@@ -413,6 +413,54 @@ test('GPU line: verified, beta, and a GPU AMD has no model for', async () => {
   assert.match(text(tree), /GPU not supported \| AMD's FSR 4 has no model for this GPU \(RDNA 3 APU, PCI 1002:15bf\)/);
   assert.ok(toggleOf(tree, game.name).props.disabled, 'nothing can be turned on without a model');
   assert.ok(!button(tree, 'Turn on FSR4 in all games'));
+});
+
+test('"Tell me when FSR4 runs" is off by default and saves its setting', async () => {
+  const h = panel();
+  const tree = await open(h);
+  const sw = toggleOf(tree, 'Tell me when FSR4 runs');
+  assert.equal(sw.props.checked, false);
+  sw.props.onChange(true);
+  await settle();
+  const on = { auto_launch_options: true, watermark: false, session_toast: true };
+  assert.deepEqual(h.respond('set_setting', ok(state({ settings: on }))).args, ['session_toast', true]);
+});
+
+test('a watched session tells once when FSR4 runs; a game that ends first stops the checks', async () => {
+  const h = panel();
+  h.exports.default();
+  h.respond('startup_notice', { ok: true, message: '' });
+  h.steam.lifetime({ unAppID: 1817070, bRunning: true });
+  await settle();
+  h.respond('session_started', { ok: true, managed: true, watch: true });
+  await settle();
+  h.advance(4000);
+  assert.deepEqual(h.respond('session_check', { ok: true, running: null }).args, [1817070]);
+  await settle();
+  h.advance(4000);
+  h.respond('session_check', { ok: true, running: 'FSR 4.1.2 (INT8_LITE)' });
+  await settle();
+  assert.deepEqual([h.toasts.at(-1).title, h.toasts.at(-1).body], ['FSR4 active', 'FSR 4.1.2 (INT8_LITE) is running.']);
+  h.advance(60000);
+  assert.ok(!pending(h, 'session_check'), 'one toast, then no more checks');
+
+  h.steam.lifetime({ unAppID: 2, bRunning: true });
+  await settle();
+  h.respond('session_started', { ok: true, managed: true, watch: true });
+  await settle();
+  h.steam.lifetime({ unAppID: 2, bRunning: false });
+  await settle();
+  h.respond('session_ended', { ok: true, managed: true, verdict: 'unused', reason: '' });
+  h.advance(60000);
+  assert.ok(!pending(h, 'session_check'), 'no checks after the game ended');
+
+  h.steam.lifetime({ unAppID: 4, bRunning: true });
+  await settle();
+  h.respond('session_started', { ok: true, managed: true, watch: false });
+  await settle();
+  h.advance(60000);
+  assert.ok(!pending(h, 'session_check'), 'the setting off: no checks');
+  assert.equal(h.toasts.length, 1);
 });
 
 test('plugin load: SteamOS update notice, and a warning when a session ended without FSR4', async () => {

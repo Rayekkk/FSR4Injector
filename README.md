@@ -30,7 +30,7 @@ that one missing answer and manages everything around it.
 | **Per-game switch** | Lists your installed games that use FSR 3.1 or newer, including Windows games added to Steam as non-Steam games, and turns FSR 4 on or off for each |
 | **All at once** | **Turn on FSR4 in all games** sets up every compatible offline game; **Turn off FSR4 and restore all games** puts every one back |
 | **Launch options your way** | Adds the one launch option it needs, or leaves launch options to you with ready-to-paste text; AMD's watermark on demand |
-| **Never fails silently** | After every session it checks that FSR 4 really ran, and tells you when it did not and why |
+| **Never fails silently** | After every session it checks that FSR 4 really ran, and tells you when it did not and why; optionally a notification during the game says when it runs |
 | **Update aware** | Marks a game for a re-check after a SteamOS or Proton update and says what changed |
 | **Clean rollback** | Turning a game off removes exactly what was added and puts its launch options back |
 | **Repair** | **Repair FSR4 in all games** re-checks AMD's library and puts the plugin's files and launch option back, e.g. after a game update |
@@ -112,6 +112,10 @@ launch options.
 2. Turn on a game under **Steam games** or **Non-Steam games**.
 3. Start the game and choose **AMD FSR** as its upscaler.
 4. Quit the game. The panel shows **✓ FSR4 active**, or a notification tells you what went wrong.
+
+To know during the game, turn on **Tell me when FSR4 runs** under **All games**: a short notification
+names the FSR 4 model as soon as AMD's library runs it. No notification means the game has not used FSR
+yet; whether something went wrong is still told when the game ends.
 
 <a href="docs/screenshots/games.png"><img src="docs/screenshots/games.png" alt="Per-game switches with the result of each game's last session" width="360"></a>
 

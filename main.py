@@ -37,8 +37,9 @@ try:
         VERSION = json.load(_f)["version"]
 except (OSError, ValueError, KeyError):
     VERSION = "0.0.0"
-# auto_launch_options: turning a game on also adds the launch option; watermark: AMD's FSR 4 watermark with it.
-DEFAULT_SETTINGS = {"auto_launch_options": True, "watermark": False}
+# auto_launch_options: turning a game on also adds the launch option; watermark: AMD's FSR 4 watermark with it;
+# session_toast: a toast during the game once FSR 4 runs.
+DEFAULT_SETTINGS = {"auto_launch_options": True, "watermark": False, "session_toast": False}
 # Decky imports the frontend while _main is still running (it hashes the 85 MB DLL); calls wait for it.
 _ready = asyncio.Event()
 rpc = dk_rpc.boundary(decky.logger, _ready)
@@ -64,7 +65,7 @@ def gpu_unsupported(gpu):
 
 
 def _load_settings(path):
-    """The two switches; a damaged or unreadable file gives the defaults (it is replaced on the next change)."""
+    """The switches; a damaged or unreadable file gives the defaults (it is replaced on the next change)."""
     try:
         saved = dk_fs.read_json(path, {}, validate=dk_fs.require_object)
     except OSError as e:
@@ -309,9 +310,16 @@ class Plugin:
 
     @rpc
     async def session_started(self, appid: int) -> dict:
-        if appid in self.manifest.entries:
+        managed = appid in self.manifest.entries
+        if managed:
             self.sessions[appid] = time.time()
-        return dk_rpc.ok(managed=appid in self.manifest.entries)
+        return dk_rpc.ok(managed=managed, watch=managed and self.settings["session_toast"])
+
+    @rpc
+    async def session_check(self, appid: int) -> dict:
+        """Polled by the frontend during a session it watches: the FSR 4 model once it runs, else null."""
+        status = await asyncio.to_thread(fsr4_install.read_status, self.manifest, appid)
+        return dk_rpc.ok(running=fsr4_install.running_model(status, self.sessions.get(appid)))
 
     @rpc
     async def session_ended(self, appid: int, launch_options: str = "") -> dict:

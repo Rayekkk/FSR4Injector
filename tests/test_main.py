@@ -98,8 +98,9 @@ class Settings(PluginTest):
         self.assertFalse((await self.p.set_setting("watermark", "yes"))["ok"])
         self.assertFalse((await self.p.set_setting("nonsense", True))["ok"])
         res = await self.p.set_setting("watermark", True)
-        self.assertEqual(res["state"]["settings"], {"auto_launch_options": True, "watermark": True})
-        self.assertEqual((await self.start()).settings, {"auto_launch_options": True, "watermark": True})
+        want = {"auto_launch_options": True, "watermark": True, "session_toast": False}
+        self.assertEqual(res["state"]["settings"], want)
+        self.assertEqual((await self.start()).settings, want)
 
     async def test_a_setting_that_cannot_be_saved_changes_nothing(self):
         full = OSError(28, "No space left on device", self.p.settings_path)
@@ -114,7 +115,7 @@ class Settings(PluginTest):
 
     async def test_two_quick_changes_both_stick(self):
         await asyncio.gather(self.p.set_setting("watermark", True), self.p.set_setting("auto_launch_options", False))
-        want = {"auto_launch_options": False, "watermark": True}
+        want = {"auto_launch_options": False, "watermark": True, "session_toast": False}
         self.assertEqual(self.p.settings, want)
         self.assertEqual((await self.start()).settings, want)
 
@@ -266,6 +267,17 @@ class Sessions(PluginTest):
                 await self.p.session_started(APPID)
                 self.status()
                 self.assertEqual((await self.p.session_ended(APPID, res["launch_options"]))["verdict"], "ok")
+
+    async def test_a_watched_session_reports_fsr4_once_it_runs(self):
+        await self.p.enable_game(APPID, "")
+        self.assertFalse((await self.p.session_started(APPID))["watch"], "off by default")
+        await self.p.set_setting("session_toast", True)
+        self.assertTrue((await self.p.session_started(APPID))["watch"])
+        self.assertFalse((await self.p.session_started(1))["watch"], "only games the plugin set up")
+        self.assertIsNone((await self.p.session_check(APPID))["running"], "no status yet")
+        self.status()
+        self.assertEqual((await self.p.session_check(APPID))["running"], "FSR 4 (INT8_LITE)")
+        self.assertIsNone((await self.p.session_check(1))["running"])
 
     async def test_steamos_update_notice_once(self):
         await self.p.enable_game(APPID, "")

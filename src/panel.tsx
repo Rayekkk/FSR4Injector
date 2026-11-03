@@ -210,7 +210,7 @@ export const Content: FC = () => {
       updates={updater()} home={state.home} install={`${INSTALL_HINT} Your games stay set up.`} />
   </Focusable>;
 
-  const settings = state.settings ?? { auto_launch_options: true, watermark: false };
+  const settings = state.settings ?? { auto_launch_options: true, watermark: false, session_toast: false };
   const dl = state.download;
   const gpu = state.gpu;
   const canEnable = state.dll_ready && state.shim_ready && !!gpu?.model && !state.error;
@@ -316,6 +316,16 @@ export const Content: FC = () => {
             </ActionButton>
           </PanelSectionRow>
         )}
+        <PanelSectionRow>
+          <ToggleField
+            label="Tell me when FSR4 runs"
+            description={<>A short notification during the game once AMD's library runs FSR 4, with its model. None yet:
+              the game has not used FSR so far; the result also shows here after the game.{failure(failed.session_toast)}</>}
+            checked={settings.session_toast}
+            disabled={busy !== null}
+            onChange={async on => take(await setSetting("session_toast", on), NAME, "session_toast")}
+          />
+        </PanelSectionRow>
       </PanelSection>
 
       <PanelSection title="Launch options">

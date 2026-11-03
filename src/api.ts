@@ -39,7 +39,7 @@ export interface State {
   recipe: { driver: string; fsr: string; dll_size: number };
   eula_url: string;
   download: Download;
-  settings: { auto_launch_options: boolean; watermark: boolean };
+  settings: { auto_launch_options: boolean; watermark: boolean; session_toast: boolean };
   copy_options: { plain: string; watermark: string };
   scanned: boolean;
   error: string; // the manifest cannot be trusted: no game can be changed
@@ -62,7 +62,8 @@ export const cancelDownload = rpc<[], StateResult>("cancel_download");
 export const enableGame = rpc<[number, string], ToggleResult>("enable_game");
 export const disableGame = rpc<[number, string], ToggleResult>("disable_game");
 export const launchOptionsSaved = rpc<[number, string], StateResult>("launch_options_saved");
-export const sessionStarted = rpc<[number], Result<never> & { managed?: boolean }>("session_started");
+export const sessionStarted = rpc<[number], Result<never> & { managed?: boolean; watch?: boolean }>("session_started");
+export const sessionCheck = rpc<[number], Result<never> & { running?: string | null }>("session_check");
 export const sessionEnded = rpc<[number, string], Result<never> & { managed?: boolean; verdict?: string; reason?: string }>("session_ended");
 export const startupNotice = rpc<[], Result<never>>("startup_notice");
 export const setSetting = rpc<[string, boolean], StateResult>("set_setting");
