@@ -2,6 +2,16 @@
 
 All notable changes to FSR4 Injector, newest first.
 
+## [1.2.1] - 2026-11-05
+
+Ubisoft games from Non Steam Launchers are listed under their own names, which 1.2.0 did not do.
+
+### 🐛 Fixed
+- **Games:** A shortcut that starts Ubisoft Connect with a game's id (`uplay://launch/…`, as Non Steam
+  Launchers creates them) now gets that game, found through the Windows registry of its Proton prefix. If
+  FSR 4 is on for the **Ubisoft Connect** entry, turn it off, press **Rescan library** and turn it on for
+  the game.
+
 ## [1.2.0] - 2026-11-03
 
 A notification during the game when FSR 4 runs, as a lighter check than AMD's watermark.
