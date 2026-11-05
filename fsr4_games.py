@@ -19,6 +19,10 @@ ANTICHEAT = ("easyanticheat", "battleye", "beservice", "start_protected_game.exe
 MAX_DEPTH = 5
 
 _KV = re.compile(r'"([^"]+)"\s+"([^"]*)"')
+_UPLAY_LAUNCH = re.compile(r"uplay://launch/(\d+)")
+# In a Wine prefix's system.reg: a Ubisoft game's two keys and the values naming its folder
+_UBISOFT_KEY = re.compile(r"\[.*\\(?:Ubisoft\\\\Launcher\\\\Installs\\\\|Uplay Install )(\d+)\]", re.I)
+_UBISOFT_DIR = re.compile(r'^"(?:InstallDir|InstallLocation)"="(.*)"\s*$', re.I)
 
 
 def _values(text, key):
@@ -77,7 +81,7 @@ def _binary_map(data, i):
 
 
 def shortcuts(steam_root):
-    """Windows games added to Steam ("Add a Non-Steam Game"), for every Steam user: [(appid, name, exe)]."""
+    """Windows games added to Steam ("Add a Non-Steam Game"), for every Steam user: [(appid, name, exe, options)]."""
     found = []
     userdata = os.path.join(steam_root, "userdata")
     try:
@@ -98,8 +102,51 @@ def shortcuts(steam_root):
             # their own folders or the home directory
             if os.path.isabs(exe) and exe.lower().endswith(".exe"):
                 name = e.get("appname") if isinstance(e.get("appname"), str) else ""
-                found.append((e["appid"], name or os.path.splitext(os.path.basename(exe))[0], exe))
+                options = e.get("launchoptions") if isinstance(e.get("launchoptions"), str) else ""
+                found.append((e["appid"], name or os.path.splitext(os.path.basename(exe))[0], exe, options))
     return found
+
+
+def _ubisoft_installs(prefix):
+    """{Ubisoft game id: its folder as Windows sees it} from a Wine prefix's registry."""
+    found, game = {}, None
+    try:
+        with open(os.path.join(prefix, "system.reg"), encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith("["):
+                    key = _UBISOFT_KEY.match(line)
+                    game = key.group(1) if key else None
+                elif game and (value := _UBISOFT_DIR.match(line)):
+                    # Wine writes non-ASCII as \x2019 and doubles backslashes
+                    found.setdefault(game, re.sub(r"\\(x[0-9a-fA-F]{1,4}|.)", lambda m: (
+                        chr(int(m[1][1:], 16)) if len(m[1]) > 1 else m[1]), value[1]))
+    except OSError:
+        pass
+    return found
+
+
+def _shortcut_root(exe, options, registries):
+    """Where a shortcut's game is searched from: its .exe's folder, or None when the game cannot be told.
+
+    A shortcut that starts a launcher with a game's id (Non Steam Launchers runs upc.exe for every Ubisoft game) needs
+    that game's folder: all of its shortcuts share one .exe, and the walk from there would find any of its games.
+    registries: what _ubisoft_installs read so far, by prefix.
+    """
+    game = _UPLAY_LAUNCH.search(options)
+    if not game:
+        return os.path.dirname(exe)
+    prefix, in_prefix, _ = exe.replace(os.sep, "/").partition("/drive_c/")
+    if not in_prefix:
+        return None
+    if prefix not in registries:
+        registries[prefix] = _ubisoft_installs(prefix)
+    drive, colon, rest = registries[prefix].get(game[1], "").replace("\\", "/").partition(":")
+    rest = rest.strip("/")
+    # the registry is written by whatever runs in the prefix: no climbing out of a drive, no whole drive either
+    if not colon or len(drive) != 1 or not rest or ".." in rest.split("/"):
+        return None
+    drive = "drive_c" if drive.lower() == "c" else os.path.join("dosdevices", drive.lower() + ":")
+    return os.path.normpath(os.path.join(prefix, drive, rest))
 
 
 def scan(steam_root, keep=()):
@@ -132,15 +179,16 @@ def scan(steam_root, keep=()):
                 games.append({"appid": int(appid[0]), "name": title[0] if title else installdir[0],
                               "install_dir": install_dir, "target_dir": target, "ffx_dll": ffx,
                               "anticheat": anticheat})
-    # A shortcut is searched from its .exe's folder down. One game folder belongs to one entry: two app ids
-    # over the same files would undo each other's setup. A shortcut with FSR 4 on (keep) holds its folder, else
-    # the one whose .exe is deepest, i.e. closest to the game: a launcher's shortcut (Ubisoft Connect, whose games
-    # sit below it) gets only games that have no shortcut of their own.
+    # A shortcut is searched from its root down. One game folder belongs to one entry: two app ids over the same
+    # files would undo each other's setup. A shortcut with FSR 4 on (keep) holds its folder, else the one whose root
+    # is deepest, i.e. closest to the game: a launcher's shortcut (Ubisoft Connect, whose games sit below it) gets
+    # only games that have no shortcut of their own.
     seen = {os.path.realpath(g["target_dir"]) for g in games}
     ids = {g["appid"] for g in games}
-    order = lambda s: (s[0] not in keep, -os.path.normpath(os.path.dirname(s[2])).count(os.sep))
-    for appid, title, exe in sorted(shortcuts(steam_root), key=order):
-        install_dir = os.path.dirname(exe)
+    registries = {}
+    rooted = [(s[0], s[1], _shortcut_root(s[2], s[3], registries)) for s in shortcuts(steam_root)]
+    order = lambda s: (s[0] not in keep, -os.path.normpath(s[2]).count(os.sep))
+    for appid, title, install_dir in sorted((s for s in rooted if s[2]), key=order):
         if appid in ids or not os.path.isdir(install_dir):
             continue
         target, ffx, anticheat = _find_ffx(install_dir)

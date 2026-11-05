@@ -94,6 +94,74 @@ class Discovery(unittest.TestCase):
         # FSR 4 already on through the launcher's shortcut: it keeps the game, so it can still be turned off
         self.assertEqual([g["appid"] for g in fsr4_games.scan(steam, {3000000001})], [3000000001])
 
+    def _ubisoft_prefix(self, reg, *folders):
+        """A prefix laid out as Non Steam Launchers does, one FFX game per folder: (steam, prefix, quoted upc.exe)."""
+        steam, prefix = tempfile.mkdtemp(), os.path.join(tempfile.mkdtemp(), "pfx")
+        launcher = os.path.join(prefix, "drive_c", "Program Files (x86)", "Ubisoft", "Ubisoft Game Launcher")
+        _write(os.path.join(launcher, "upc.exe"), b"x")
+        for folder in folders:
+            _write(os.path.join(launcher, "games", folder, "amd_fidelityfx_dx12.dll"), b"x")
+        _write(os.path.join(prefix, "system.reg"), reg.encode())
+        return steam, prefix, '"' + os.path.join(launcher, "upc.exe") + '"'
+
+    def test_shortcuts_sharing_a_launchers_exe_get_their_games_by_id(self):
+        # the launcher's own shortcut comes first and two games sit below it: a walk from upc.exe cannot tell them apart
+        games = "Program Files (x86)/Ubisoft/Ubisoft Game Launcher/games"
+        steam, _, upc = self._ubisoft_prefix(
+            "WINE REGISTRY Version 2\n"
+            r"[Software\\Wow6432Node\\Ubisoft\\Launcher\\Installs\\3923] 1700000000" "\n"
+            rf'"InstallDir"="C:/{games}/Assassin\x2019s Creed Shadows/"' "\n\n"
+            r"[Software\\Wow6432Node\\Microsoft\\Windows\\Uninstall\\Uplay Install 55] 1700000000" "\n"
+            r'"DisplayName"="Other"' "\n"
+            + '"InstallLocation"="C:\\\\' + games.replace("/", "\\\\") + '\\\\Other"\n\n'
+            r"[Software\\Elsewhere\\7] 1" "\n" r'"InstallDir"="C:/not/this"' "\n",
+            "Assassin\u2019s Creed Shadows", "Other")
+        launch = lambda game: f'STEAM_COMPAT_DATA_PATH="/x/" %command% "uplay://launch/{game}/0"'
+        _shortcuts_vdf(steam, "1",
+                       {"appid": 3000000001, "AppName": "Ubisoft Connect", "Exe": upc},
+                       {"appid": 3000000002, "AppName": "AC Shadows", "Exe": upc, "LaunchOptions": launch(3923)},
+                       {"appid": 3000000003, "AppName": "Other", "Exe": upc, "LaunchOptions": launch(55)},
+                       {"appid": 3000000004, "AppName": "Not installed", "Exe": upc, "LaunchOptions": launch(7)})
+        found = {g["appid"]: os.path.basename(g["target_dir"]) for g in fsr4_games.scan(steam)}
+        self.assertEqual(found, {3000000002: "Assassin\u2019s Creed Shadows", 3000000003: "Other"})
+        # FSR 4 already on through the launcher's shortcut: it keeps the game it found until that is turned off
+        kept = {g["appid"]: os.path.basename(g["target_dir"]) for g in fsr4_games.scan(steam, {3000000001})}
+        self.assertEqual(set(kept.values()), {"Assassin\u2019s Creed Shadows", "Other"})
+        self.assertIn(3000000001, kept)
+
+    def test_a_game_id_without_a_usable_folder_is_not_listed(self):
+        launch = "%command% uplay://launch/3923/0"
+        for value in ("", "C:/", "C:/../../home", "no drive"):
+            steam, _, upc = self._ubisoft_prefix(
+                r"[Software\\Ubisoft\\Launcher\\Installs\\3923] 1" "\n" f'"InstallDir"="{value}"\n', "AC")
+            _shortcuts_vdf(steam, "1", {"appid": 3000000002, "AppName": "AC", "Exe": upc, "LaunchOptions": launch})
+            self.assertEqual(fsr4_games.scan(steam), [], value)
+        # no registry at all
+        steam, prefix, upc = self._ubisoft_prefix("", "AC")
+        os.remove(os.path.join(prefix, "system.reg"))
+        _shortcuts_vdf(steam, "1", {"appid": 3000000002, "AppName": "AC", "Exe": upc, "LaunchOptions": launch})
+        self.assertEqual(fsr4_games.scan(steam), [])
+        # a launcher outside any prefix, with an FFX DLL right next to it
+        drive = tempfile.mkdtemp()
+        _write(os.path.join(drive, "upc.exe"), b"x")
+        _write(os.path.join(drive, "amd_fidelityfx_dx12.dll"), b"x")
+        _shortcuts_vdf(steam, "1", {"appid": 3000000002, "AppName": "AC", "Exe": os.path.join(drive, "upc.exe"),
+                                    "LaunchOptions": launch})
+        self.assertEqual(fsr4_games.scan(steam), [])
+
+    @unittest.skipIf(os.name == "nt", "a Wine drive is a symlink named z: in dosdevices")
+    def test_a_game_on_another_wine_drive_is_found_through_dosdevices(self):
+        library = tempfile.mkdtemp()
+        _write(os.path.join(library, "games", "AC", "amd_fidelityfx_dx12.dll"), b"x")
+        steam, prefix, upc = self._ubisoft_prefix(
+            r"[Software\\Ubisoft\\Launcher\\Installs\\3923] 1" "\n" f'"InstallDir"="Z:{library}/games/AC/"\n')
+        os.makedirs(os.path.join(prefix, "dosdevices"))
+        os.symlink("/", os.path.join(prefix, "dosdevices", "z:"))
+        _shortcuts_vdf(steam, "1", {"appid": 3000000002, "AppName": "AC", "Exe": upc,
+                                    "LaunchOptions": "%command% uplay://launch/3923/0"})
+        self.assertEqual([os.path.realpath(g["target_dir"]) for g in fsr4_games.scan(steam)],
+                         [os.path.realpath(os.path.join(library, "games", "AC"))])
+
 
 def _vdf_entry(index, fields):
     body = b"".join((b"\x02" + k.encode() + b"\0" + v.to_bytes(4, "little")) if isinstance(v, int)
@@ -114,6 +182,13 @@ class LaunchOptions(unittest.TestCase):
             self.assertTrue(applied.startswith(I.TOKEN + " "))
             self.assertIn("%command%", applied)
             self.assertEqual(I.without_token(applied, original, applied), original)
+
+    def test_round_trip_of_a_launchers_shortcut(self):
+        original = 'STEAM_COMPAT_DATA_PATH="/home/deck/compatdata/NonSteamLaunchers/" %command% "uplay://launch/3923/0"'
+        applied = I.with_token(original)
+        self.assertEqual(applied, f"{I.TOKEN} {original}")
+        self.assertTrue(I.has_token(applied))
+        self.assertEqual(I.without_token(applied, original, applied), original)
 
     def test_user_edit_after_enable_keeps_their_change(self):
         applied = I.with_token("%command%")

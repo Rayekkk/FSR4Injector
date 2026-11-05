@@ -52,7 +52,9 @@ model 15.1 ms. One run per variant.
 A non-Steam game is found when its Steam shortcut starts the game's `.exe` and runs it with Proton;
 the plugin looks for the FidelityFX DLL in that `.exe`'s folder and below. When two shortcuts reach the
 same game (a launcher such as Ubisoft Connect and the game itself), the game goes to the shortcut whose
-`.exe` is closest to it; turn FSR 4 on there and start the game from that shortcut. Shortcuts that start a
+`.exe` is closest to it; turn FSR 4 on there and start the game from that shortcut. A shortcut that starts
+Ubisoft Connect with a game's id (`uplay://launch/…`, as Non Steam Launchers creates them) is matched to that
+game through the Windows registry of its Proton prefix. Shortcuts that start a
 launcher such as Heroic or Lutris are not listed, and **Turn on FSR4 in all games** skips non-Steam
 games (Steam has no store categories for them), so turn them on one by one.
 
